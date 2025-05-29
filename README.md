@@ -30,7 +30,8 @@ Key features:
 
 ## Requirements
 
-- MATLAB R2023a or later
+- MATLAB R2024b or later
+- Simulink
 - Control System Toolbox
 - Optimization Toolbox (for advanced control allocation)
 
