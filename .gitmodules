@@ -1,0 +1,3 @@
+[submodule "Simulink_Flight_Simulation"]
+	path = Simulink_Flight_Simulation
+	url = git@github.com:UoA-DTRG/Simulink_Flight_Simulations.git
