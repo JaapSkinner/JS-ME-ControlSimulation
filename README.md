@@ -23,7 +23,8 @@ Key features:
 ## Project Structure
 
 - `ParameterEstimation/` – Scripts and functions for parameter identification  
-- `ControlAllocation/` – Control allocation and simulation tools  
+- `ControlAllocation/` – Control allocation and simulation tool
+- `Simulink_Flight_Simulation/` – Simulation from DTRG repo imported as submodule
 - `data/` – Raw and processed experimental data  
 - `results/` – Generated figures and logs  
 - `README.md` – Project overview  
