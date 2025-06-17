@@ -215,8 +215,9 @@ end
 
 disp('Please wait while the video is written')
 warning('off','MATLAB:audiovideo:VideoWriter:mp4FramePadded')
-VidName = [Uav.uavType,'_',windFile(1:(end-5))];
-video = VideoWriter([VidName, '.avi'], 'Motion JPEG AVI');
+[~, windName, ~] = fileparts(windFile);
+VidName = Uav.uavType + "_" + windName;
+video = VideoWriter(char("Results/ParameterEstimation/Videos/"+ VidName + ".avi"));
 video.FrameRate = VidFreq;
 open(video)
 writeVideo(video, PlotVid);
