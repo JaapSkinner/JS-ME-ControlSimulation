@@ -3,23 +3,25 @@
 
 %% Load data and form structures
 
-load('simData.mat');  % replace with actual file
+data = load('MLE-Simout.mat');  % replace with actual file
+fields = fieldnames(data.data);
+for i = 1:numel(fields)
+    assignin('base', fields{i}, data.data.(fields{i}));
+end
 
 % Structure the measurement set Z (pose + optional rotor speeds)
 Z = struct();
-Z.t = timeVec;                      % timestamps
-Z.p = pos_WB;                       % position
-Z.q = quat_WB;                      % quaternion orientation
-Z.hasRotorSpeed = exist('rotorSpeeds', 'var') == 1;
-if Z.hasRotorSpeed
-    Z.n = rotorSpeeds;
-end
+Z.t = timevec.Data;                      % timestamps
+dt_seq = diff(Z.t);
+Z.p = xi.Data;                       % position
+Z.q = q.Data;                      % quaternion orientation
+Z.n = rotorSpeeds.Data;
 
 % Structure input set U (control + inertial)
 U = struct();
-U.t = timeVec;
-U.uM = motorCmds;                   % motor commands
-U.uI = [gyro_B, accel_B];           % IMU readings: [ω a]
+U.t = timevec.Data;
+U.uM = pwm.Data;                   % motor commands
+U.uI = [nuBodyMeasured.Data, VBodyDot.Data];           % IMU readings: [ω a]
 
 %% Set initial guesses for state trajectory and parameters
 
@@ -66,7 +68,36 @@ thetaBar.cd = 0.1;                 % guess: drag coefficient
 thetaBar.J = [5e-3; 5e-3; 1e-2];   % guess: diagonal inertia
 thetaBar.rBC = [0; 0; 0];          % IMU at CoG initially
 
+%% Measuement Covariances
+
+R_pos = 1e-4 * eye(3);   % Position noise: small variance
+R_quat = 1e-4 * eye(3);  % Quaternion (rotation vector) noise
+
+nx = length(getStateVector(Xbar(1)));  % state vector dimension
+
+Qm = 1e-3 * eye(nx);   % MAV dynamics process noise
+Qi = 1e-3 * eye(nx);   % IMU dynamics process noise
+
+
 %% State and Param update helpers
+function x_vec = getStateVector(x)
+    % Converts state struct to column vector
+    x_vec = [x.p; x.v; x.q; x.omega; x.bw; x.ba; x.n];
+end
+
+function x = setStateVector(x_template, x_vec)
+    % Sets the state fields from vector using a template
+    x = x_template;
+    idx = 1;
+    x.p = x_vec(idx:idx+2); idx = idx+3;
+    x.v = x_vec(idx:idx+2); idx = idx+3;
+    x.q = x_vec(idx:idx+3); idx = idx+4;
+    x.omega = x_vec(idx:idx+2); idx = idx+3;
+    x.bw = x_vec(idx:idx+2); idx = idx+3;
+    x.ba = x_vec(idx:idx+2); idx = idx+3;
+    x.n = x_vec(idx:end);
+end
+
 function x_new = applyStateDelta(x, dx)
     % dx is a vector containing [dp; dv; dtheta; domega; dbw; dba; dn]
     x_new = x;
@@ -102,12 +133,13 @@ end
 
 %% Measurement Residuals
 
-% Compute minimal quaternion residual (3D vector)
 function dq = quatError(q_est, q_meas)
-    % Both quaternions are column vectors [w; x; y; z]
-    q_err = quatmultiply(quatconj(q_est'), q_meas');  % MATLAB needs row inputs
-    q_err = q_err';  % convert back to column
-    dq = 2 * q_err(2:4);  % small angle approx: vector part scaled
+    % Ensure both are row vectors
+    q_est_row = q_est(:)';   % force 1x4
+    q_meas_row = q_meas(:)'; % force 1x4
+
+    q_err = quatmultiply(quatconj(q_est_row), q_meas_row);
+    dq = 2 * q_err(2:4)';  % return as column vector
 end
 
 % Return pose residual (position + orientation)
@@ -319,67 +351,75 @@ function [residuals, A, state_idx, param_idx] = buildBatchSystem(Xbar, thetaBar,
 
     for k = 2:K
         dt = dt_seq(k-1);
-        
+    
+        % === Extract kth measurement ===
+        Zk.p = Z.p(k, :);
+        Zk.q = Z.q(k, :);
+        if isfield(Z, 'n')
+            Zk.n = Z.n(k, :);
+        end
+    
         % === Measurement residual ===
-        [res_meas, R_meas] = measurementResidual(Xbar(k), Z(k), R_pos, R_quat);
+        [res_meas, R_meas] = measurementResidual(Xbar(k), Zk, R_pos, R_quat);
         L_meas = chol(R_meas, 'lower') \ eye(size(R_meas));
         res_meas_norm = L_meas * res_meas;
-
-        f_meas = @(x_vec) measurementResidual(setStateVector(Xbar(k), x_vec), Z(k), R_pos, R_quat);
+    
+        f_meas = @(x_vec) measurementResidual(setStateVector(Xbar(k), x_vec), Zk, R_pos, R_quat);
         H_meas = L_meas * finiteDifference(f_meas, getStateVector(Xbar(k)), 1e-6);
-
+    
         % === MAV model residual ===
         x_pred_mav = integrateMAV(Xbar(k-1), U.uM(k-1, :)', dt, thetaBar);
         res_dyn_mav = stateResidual(Xbar(k), x_pred_mav);
         L_mav = chol(Qm, 'lower') \ eye(size(Qm));
         res_dyn_mav_norm = L_mav * res_dyn_mav;
-
+    
         f_mav_x = @(x_vec) stateResidual(Xbar(k), ...
             integrateMAV(setStateVector(Xbar(k-1), x_vec), U.uM(k-1,:)', dt, thetaBar));
         H_dynM_x = L_mav * finiteDifference(f_mav_x, getStateVector(Xbar(k-1)), 1e-6);
-
+    
         f_mav_theta = @(theta_vec) stateResidual(Xbar(k), ...
             integrateMAV(Xbar(k-1), U.uM(k-1,:)', dt, setParamVector(theta_vec)));
         H_dynM_theta = L_mav * finiteDifference(f_mav_theta, getParamVector(thetaBar), 1e-6);
-
+    
         % === IMU model residual ===
         x_pred_imu = integrateIMU(Xbar(k-1), U.uI(k-1, :)', dt);
         res_dyn_imu = stateResidual(Xbar(k), x_pred_imu);
         L_imu = chol(Qi, 'lower') \ eye(size(Qi));
         res_dyn_imu_norm = L_imu * res_dyn_imu;
-
+    
         f_imu_x = @(x_vec) stateResidual(Xbar(k), ...
             integrateIMU(setStateVector(Xbar(k-1), x_vec), U.uI(k-1,:)', dt));
         H_dynI_x = L_imu * finiteDifference(f_imu_x, getStateVector(Xbar(k-1)), 1e-6);
-
+    
         % === Stack residuals ===
         residuals = [residuals; res_meas_norm; res_dyn_mav_norm; res_dyn_imu_norm];
-
+    
         % === Stack Jacobians ===
         A_k = zeros(size(res_meas_norm,1) + size(res_dyn_mav_norm,1) + size(res_dyn_imu_norm,1), ...
                    K*nx + np);
-
+    
         idx_km1 = (k-2)*nx + (1:nx);
         idx_k   = (k-1)*nx + (1:nx);
         state_idx(k,:) = idx_k;
-
+    
         % H_meas applies to x_k
         A_k(1:size(H_meas,1), idx_k) = H_meas;
-
+    
         % H_dynM_x applies to x_{k-1}, H_dynM_theta to θ
         r1 = size(H_meas,1) + 1;
         r2 = r1 + size(H_dynM_x,1) - 1;
         A_k(r1:r2, idx_km1) = H_dynM_x;
         A_k(r1:r2, end-np+1:end) = H_dynM_theta;
-
+    
         % H_dynI_x applies to x_{k-1}
         r3 = r2 + 1;
         r4 = r3 + size(H_dynI_x,1) - 1;
         A_k(r3:r4, idx_km1) = H_dynI_x;
-
+    
         % Stack into total system
         A = [A; A_k];
     end
+
 
     % Final param index range
     param_idx = (K-1)*nx + (1:np);

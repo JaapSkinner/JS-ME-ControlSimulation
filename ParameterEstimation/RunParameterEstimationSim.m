@@ -3,6 +3,7 @@
     
     % Run the base script to load and initialize everything
     run('ParameterEstimationBase.m');
+    run('mlebusgen.m');
     addpath(submodulePath);
     
     
@@ -16,9 +17,7 @@
     outputFile = sprintf('%s_%s_%s', testCase, uavType, tStr);
     
     
-    
-    
-    
+  
     
     %% ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     %% Deactivate initial states
