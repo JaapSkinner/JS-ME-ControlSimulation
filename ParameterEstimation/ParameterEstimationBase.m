@@ -29,7 +29,7 @@ end
 tEnd = 300;
 %Add initialisation period (30s) for the simulation
 dt = mean(gradient(windInput.time));        %Mean sim timestep  
-t_init = 0:dt:30;                           %time array for the new data
+t_init = 0:dt:10;                           %time array for the new data
 %Create linear init ramp
 vel_init = [linspace(0,windInput.Data(1,1),length(t_init))',...
     linspace(0,windInput.Data(1,2),length(t_init))',...

@@ -20,8 +20,8 @@ end
 %% Retrieve x, z, and pitch data
 logsout = simOut.get('logsout');    % retrieve loggged data from Simulink output
 tout = simOut.get('tout');          % retrieve time data
-tstart = 60;
-tend = tstart + 30;
+tstart = 00;
+tend = tstart + 45;
 tCutOff = tout((abs(tout-tstart)) == min(abs(tout-tstart)));                  % user specified start time for analysis
 tCutOffEnd = tout((abs(tout-tend)) == min(abs(tout-tend)));             % user specified end time for analysis
 loc = getsampleusingtime( logsout.get('xi').Values, tCutOff, tCutOffEnd);
