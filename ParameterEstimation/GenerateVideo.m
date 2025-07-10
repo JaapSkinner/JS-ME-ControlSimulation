@@ -69,8 +69,8 @@ xMax = max(x)+(0.5*Uav.D_UAV+max(Uav.D_PROP));
 xMin = min(x)-(0.5*Uav.D_UAV+max(Uav.D_PROP));
 yMax = max(y)+(0.5*Uav.D_UAV+max(Uav.D_PROP));
 yMin = min(y)-(0.5*Uav.D_UAV+max(Uav.D_PROP));
-zMin = max(z)+(0.5*Uav.D_UAV+max(Uav.D_PROP));
-zMax = min(z)-(0.5*Uav.D_UAV+max(Uav.D_PROP));
+zMin = max(z)+(0.5*Uav.D_UAV+max(Uav.D_PROP)) + 7;
+zMax = min(z)-(0.5*Uav.D_UAV+max(Uav.D_PROP))+ 7;
 
 %% Add rotors, in order of the Uav array
 

@@ -7,52 +7,52 @@ run('mlebusgen.m');
 addpath(submodulePath);
 
 %% Parameter Variation
-variationPercent = 0;  % percent variation
+variationPercent = 5;  % percent variation
 vary = @(x) x .* (1 + (2*rand(size(x)) - 1) * (variationPercent / 100));
 % MOTOR VARIATION
-Motor.K           = vary(Motor.K);
-Motor.K_T         = vary(Motor.K_T);
-Motor.K_V         = vary(Motor.K_V);
-Motor.K_E         = vary(Motor.K_E);
-Motor.C_TAU       = vary(Motor.C_TAU);
-Motor.I_R         = vary(Motor.I_R);
-Motor.I_R_ZZ      = vary(Motor.I_R_ZZ);
-Motor.I_Rv        = vary(Motor.I_Rv);
-Motor.B           = vary(Motor.B);
-Motor.Volt_offset = vary(Motor.Volt_offset);
-Motor.volt_slope  = vary(Motor.volt_slope);
-Motor.pwm_min     = vary(Motor.pwm_min);
-Motor.pwm_max     = vary(Motor.pwm_max);
-Motor.R           = vary(Motor.R);
-Motor.V_0         = vary(Motor.V_0);
-Motor.I_0         = vary(Motor.I_0);
+% Motor.K           = vary(Motor.K);           % Motor gain constant
+% Motor.K_T         = vary(Motor.K_T);         % Thrust coefficient
+Motor.K_V         = vary(Motor.K_V);         % Speed constant (RPM per Volt)
+Motor.K_E         = vary(Motor.K_E);         % Back EMF constant
+% Motor.C_TAU       = vary(Motor.C_TAU);       % Torque coefficient
+% Motor.I_R         = vary(Motor.I_R);         % Motor rotor inertia
+% Motor.I_R_ZZ      = vary(Motor.I_R_ZZ);      % Motor rotor inertia around Z axis
+% Motor.I_Rv        = vary(Motor.I_Rv);        % Motor rotational viscous inertia
+Motor.B           = vary(Motor.B);           % Motor viscous friction coefficient
+Motor.Volt_offset = vary(Motor.Volt_offset); % Voltage offset for PWM conversion
+Motor.volt_slope  = vary(Motor.volt_slope);  % Voltage-PWM scaling factor
+% Motor.pwm_min     = vary(Motor.pwm_min);     % Minimum PWM duty cycle
+% Motor.pwm_max     = vary(Motor.pwm_max);     % Maximum PWM duty cycle
+Motor.R           = vary(Motor.R);           % Motor internal resistance
+% Motor.V_0         = vary(Motor.V_0);         % Nominal supply voltage
+Motor.I_0         = vary(Motor.I_0);         % No-load current
 
 % UAV VARIATION
 
-Uav.D_UAV               = vary(Uav.D_UAV);           % Drag coefficient UAV body
-Uav.D_PROP              = vary(Uav.D_PROP);          % Drag coefficient propeller
-Uav.RotorTiltDeg        = vary(Uav.RotorTiltDeg);    % Rotor tilt angle, affects thrust direction
-Uav.MotorLoc            = vary(Uav.MotorLoc);        % Rotor positions relative to body
-Uav.M                   = vary(Uav.M);               % Mass
-Uav.I                   = vary(Uav.I);               % Inertia matrix entries (if stored as vector/array)
-Uav.NOMINAL_BATTERY_VOLTAGE = vary(Uav.NOMINAL_BATTERY_VOLTAGE);
-Uav.ROTOR_DIRECTION     = Uav.ROTOR_DIRECTION;       % Usually ±1, no variation unless fault sim
-Uav.RHO_AIR             = vary(Uav.RHO_AIR);         % Air density
-
-Uav.R_PROP              = vary(Uav.R_PROP);          % Prop radius
-Uav.A_UAV               = vary(Uav.A_UAV);           % UAV frontal area
-Uav.A_PROP              = vary(Uav.A_PROP);          % Prop area
-Uav.ZETA                = vary(Uav.ZETA);            % Damping factor (if used)
+% Uav.D_UAV               = vary(Uav.D_UAV);           % Drag coefficient UAV body
+% Uav.D_PROP              = vary(Uav.D_PROP);          % Drag coefficient propeller
+% Uav.RotorTiltDeg        = vary(Uav.RotorTiltDeg);    % Rotor tilt angle, affects thrust direction
+% Uav.MotorLoc            = vary(Uav.MotorLoc);        % Rotor positions relative to body
+% Uav.M                   = vary(Uav.M);               % Mass
+% Uav.I                   = vary(Uav.I);               % Inertia matrix entries (if stored as vector/array)
+% Uav.NOMINAL_BATTERY_VOLTAGE = vary(Uav.NOMINAL_BATTERY_VOLTAGE);
+% Uav.ROTOR_DIRECTION     = Uav.ROTOR_DIRECTION;       % Usually ±1, no variation unless fault sim
+% Uav.RHO_AIR             = vary(Uav.RHO_AIR);         % Air density
+% 
+% Uav.R_PROP              = vary(Uav.R_PROP);          % Prop radius
+% Uav.A_UAV               = vary(Uav.A_UAV);           % UAV frontal area
+% Uav.A_PROP              = vary(Uav.A_PROP);          % Prop area
+% Uav.ZETA                = vary(Uav.ZETA);            % Damping factor (if used)
 
 % AERO VARIATION
 
-aeroFields = {'Cz2P', 'Cz3P', 'Cx2P', 'CM2P', 'Cz1P', 'Cz1B', 'Cx1B', 'Cx1P', 'CM1P', 'CM1B'};
-
-for i = 1:numel(aeroFields)
-    fld = aeroFields{i};
-    % Vary only the coefficients, keep inputs and equation intact
-    Aero.(fld).coefs = vary(Aero.(fld).coefs);
-end
+% aeroFields = {'Cz2P', 'Cz3P', 'Cx2P', 'CM2P', 'Cz1P', 'Cz1B', 'Cx1B', 'Cx1P', 'CM1P', 'CM1B'};
+% 
+% for i = 1:numel(aeroFields)
+%     fld = aeroFields{i};
+%     % Vary only the coefficients, keep inputs and equation intact
+%     Aero.(fld).coefs = vary(Aero.(fld).coefs);
+% end
 
 
 
