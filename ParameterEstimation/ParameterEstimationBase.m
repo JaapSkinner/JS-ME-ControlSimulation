@@ -26,7 +26,7 @@ load(windFile);
 if exist('windData','var')
 windInput = timeseries(windData(:,2:4),windData(:,1));
 end
-tEnd = 300;
+tEnd = 30;
 %Add initialisation period (30s) for the simulation
 dt = mean(gradient(windInput.time));        %Mean sim timestep  
 t_init = 0:dt:10;                           %time array for the new data
@@ -62,5 +62,10 @@ UseEstimators(modelName, true);
 UsePositionController(modelName, true);
 
 %% Initialize simulation
-tEnd = 300;
+tEnd = 60;
+
+set_param(modelName, 'LoadInitialState', 'off');
+set_param(modelName, 'LoadExternalInput', 'off');
+
+
 Simulation = InitializeModel(modelName, Initial, tEnd);

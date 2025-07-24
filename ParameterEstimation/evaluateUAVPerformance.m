@@ -1,46 +1,44 @@
 function metrics = evaluateUAVPerformance(simOut)
-% Extracts performance metrics from simulation output
+% Extracts performance metrics from simulation output (only between t=15s and t=50s)
 
-    % Get logs
-    logsout = simOut.get('logsout');
+    % Trimmed timeseries between 15s and 50s
+    xref    = simOut.xref.getsampleusingtime(15, 50);
+    xi      = simOut.xi.getsampleusingtime(15, 50);
+    etaref  = simOut.etaref.getsampleusingtime(15, 50);
+    eta     = simOut.eta.getsampleusingtime(15, 50);
+    tau_des = simOut.tau_des.getsampleusingtime(15, 50);
+    tau     = simOut.tau.getsampleusingtime(15, 50);
+    T_des   = simOut.T_des.getsampleusingtime(15, 50);
+    T       = simOut.T.getsampleusingtime(15, 50);
 
-    % Cross-track & rotation error
-    pos_ref = logsout.get('xref').Values;      % Desired position [x y z]
-    pos_act = logsout.get('xi').Values;        % Actual position
+    % Data
+    pos_act   = xi.Data;
+    att_ref   = etaref.Data;
+    att_act   = eta.Data;
+    tau_cmd   = squeeze(tau_des.Data)';   % (N x 3)
+    tau_act   = tau.Data;
+    thrust_cmd = T_des.Data(:,3);
+    thrust_act = T.Data(:,3);
 
-    att_ref = logsout.get('etaref').Values;    % Desired [roll pitch yaw]
-    att_act = logsout.get('eta').Values;       % Actual attitude
+    % Y-axis deviation RMS
+    y_error = pos_act(:,2);
+    yRMS = sqrt(mean(y_error.^2));
 
-    % Torque & thrust
-    tau_cmd = logsout.get('tau_des').Values;   % Commanded torque
-    tau_act = logsout.get('tau').Values;       % Actual torque
+    % Attitude error RMS
+    att_error = att_ref - att_act;
+    rotErrorRMS = sqrt(mean(sum(att_error.^2, 2)));
 
-    thrust_cmd = logsout.get('T_des').Values;  % Commanded total thrust
-    thrust_act = logsout.get('T').Values;      % Actual total thrust
-
-    % Time range
-    t = pos_ref.Time;
-    t_start = t(1);
-    t_end = t(end);
-
-    % Cross-track error (Euclidean norm)
-    pos_error = pos_ref.Data - pos_act.Data;
-    att_error = att_ref.Data - att_act.Data;
-
-    crossTrackRMS = sqrt(mean(sum(pos_error.^2, 2)));
-    rotErrorRMS   = sqrt(mean(sum(att_error.^2, 2)));
-
-    % Thrust error (absolute mean error)
-    thrustError = abs(thrust_cmd.Data - thrust_act.Data);
+    % Thrust error mean
+    thrustError = abs(thrust_cmd - thrust_act);
     thrustErrorMean = mean(thrustError);
 
-    % Torque error (Euclidean)
-    tau_error = tau_cmd.Data - tau_act.Data;
+    % Torque RMS error
+    tau_error = tau_cmd - tau_act;
     torqueErrorRMS = sqrt(mean(sum(tau_error.^2, 2)));
 
-    % Output struct
-    metrics.CrossTrackRMS     = crossTrackRMS;
-    metrics.RotationErrorRMS  = rotErrorRMS;
-    metrics.ThrustErrorMean   = thrustErrorMean;
-    metrics.TorqueErrorRMS    = torqueErrorRMS;
+    % Output
+    metrics.YDeviationRMS      = yRMS;
+    metrics.RotationErrorRMS   = rotErrorRMS;
+    metrics.ThrustErrorMean    = thrustErrorMean;
+    metrics.TorqueErrorRMS     = torqueErrorRMS;
 end
