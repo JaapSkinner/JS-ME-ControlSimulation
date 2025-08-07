@@ -1,3 +1,27 @@
+% CONFIG
+N_samples = 1000;
+N_motors  = 8;
+
+% Load or define nominal structs
+run('ParameterEstimationBase.m');
+Motor_nom = Motor;
+Uav_nom   = Uav;
+
+variationPercent = 5 * ones(16,1);  % 5% variation everywhere
+
+% Storage
+features = cell(N_samples, 1);
+
+% Sampling
+for i = 1:N_samples
+    [~, ~, f] = sampleParameters(Motor_nom, Uav_nom, variationPercent, [], N_motors);
+    features{i} = f;
+end
+
+% Convert to struct array
+F = [features{:}];
+
+
 paramList = {
     'K_V', true;        % perMotor (std_across_motors + mean_deviation)
     'K_E', true;
@@ -6,7 +30,7 @@ paramList = {
     'volt_slope', true;
     'R', true;
     'I_0', true;
-    'D_UAV', true;
+    'D_UAV', false;
     'D_PROP', true;
     'M', false;         % scalar only
     'I', false;         % vector per_axis_deviation
