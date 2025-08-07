@@ -1,11 +1,20 @@
 paramNames = {
     'Motor.K_V';
     'Motor.K_E';
-    'Motor.R';
-    'Motor.volt_slope';
-    'Motor.Volt_offset';
     'Motor.B';
+    'Motor.Volt_offset';
+    'Motor.volt_slope';
+    'Motor.R';
     'Motor.I_0';
+    'Uav.D_UAV';
+    'Uav.D_PROP';
+    'Uav.M';
+    'Uav.I';
+    'Uav.RHO_AIR';
+    'Uav.R_PROP';
+    'Uav.A_UAV';
+    'Uav.A_PROP';
+    'Uav.ZETA';
 };
 baseDir = fileparts(mfilename('fullpath'));
 tmpDir = fullfile(baseDir, 'tmp_results');
@@ -18,8 +27,7 @@ clc;
 if ~exist(tmpDir, 'dir')
     mkdir(tmpDir);
 end
-%% 
-
+%%
 
 for i = 1:nParams
     for j = 1:nSteps
@@ -42,8 +50,21 @@ for i = 1:nParams
             % j, nSteps, paramNames{i}, varianceList(i), metrics.CrossTrackRMS, metrics.RotationErrorRMS);
         catch ME
             warning('Simulation failed for param %s at step %d: %s', paramNames{i}, j, ME.message);
-            fprintf('Error in: %s\n', ME.stack(1).file);
-            fprintf('Line: %d\n', ME.stack(1).line);
+            
+            % Print all causes if any
+            if ~isempty(ME.cause)
+                for k = 1:numel(ME.cause)
+                    fprintf('  Cause %d: %s\n', k, ME.cause{k}.message);
+                end
+            end
+        
+            % Print full stack
+            fprintf('  Full error stack:\n');
+            for k = 1:numel(ME.stack)
+                fprintf('    %s (line %d)\n', ME.stack(k).file, ME.stack(k).line);
+            end
+        
+            % Optional: rethrow or log more
         end
     end
     disp('Pausing for cleanup...');

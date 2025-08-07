@@ -9,7 +9,8 @@ function simOut = RunParameterEstimationSim(~, variationPercent)
     
     %% Parameter Variation
     vary = @(x, p) x .* (1 + (2*rand(size(x)) - 1) * (p / 100));
-    % MOTOR VARIATION
+    
+    % MOTOR
     Motor.K_V         = vary(Motor.K_V,         variationPercent(1));
     Motor.K_E         = vary(Motor.K_E,         variationPercent(2));
     Motor.B           = vary(Motor.B,           variationPercent(3));
@@ -17,6 +18,17 @@ function simOut = RunParameterEstimationSim(~, variationPercent)
     Motor.volt_slope  = vary(Motor.volt_slope,  variationPercent(5));
     Motor.R           = vary(Motor.R,           variationPercent(6));
     Motor.I_0         = vary(Motor.I_0,         variationPercent(7));
+    
+    % UAV
+    Uav.D_UAV         = vary(Uav.D_UAV,         variationPercent(8));
+    Uav.D_PROP        = vary(Uav.D_PROP,        variationPercent(9));
+    Uav.M             = vary(Uav.M,             variationPercent(10));
+    Uav.I             = vary(Uav.I,             variationPercent(11));
+    Uav.RHO_AIR       = vary(Uav.RHO_AIR,       variationPercent(12));
+    Uav.R_PROP        = vary(Uav.R_PROP,        variationPercent(13));
+    Uav.A_UAV         = vary(Uav.A_UAV,         variationPercent(14));
+    Uav.A_PROP        = vary(Uav.A_PROP,        variationPercent(15));
+    Uav.ZETA          = vary(Uav.ZETA,          variationPercent(16));
 
 
 
@@ -65,12 +77,17 @@ function simOut = RunParameterEstimationSim(~, variationPercent)
     simIn = simIn.setVariable('Initial', Initial);
     simIn = simIn.setVariable('Aero', Aero);
     simIn = simIn.setVariable('MLEBUS', MLEBUS);
-
+    simIn = simIn.setModelParameter('SaveOutput', 'off', 'SaveTime', 'off', 'SaveState', 'off', 'SaveFormat', 'StructureWithTime');
+    warning('off','SDI:sdi:LowDiskSpaceRecordOff');
+    warning('off');
     % 
     % disp('Simulation runs:')
     % fprintf('\t[%d/%d] wind file: % 18s, Umean = %5.2f m/s\n', 1, 1, windFile, UMean);
     
     simOut = sim(simIn);
+    warning("on")
+    [~, warnId] = lastwarn;
+    fprintf('Last warning ID: %s\n', warnId);
     
     if ~isfolder(outputFolder)
         mkdir(outputFolder)

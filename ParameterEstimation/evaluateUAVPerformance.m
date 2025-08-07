@@ -30,7 +30,7 @@ function metrics = evaluateUAVPerformance(simOut)
 
     % Thrust error mean
     thrustError = abs(thrust_cmd - thrust_act);
-    thrustErrorMean = mean(thrustError);
+    thrustErrorRMS = sqrt(mean(thrustError.^2));
 
     % Torque RMS error
     tau_error = tau_cmd - tau_act;

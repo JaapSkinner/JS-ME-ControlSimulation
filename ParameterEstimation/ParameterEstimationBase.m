@@ -67,5 +67,10 @@ tEnd = 60;
 set_param(modelName, 'LoadInitialState', 'off');
 set_param(modelName, 'LoadExternalInput', 'off');
 
+set_param(modelName, 'SaveOutput', 'off');
+set_param(modelName, 'SaveTime', 'off');
+set_param(modelName, 'SaveState', 'off');
+set_param(modelName, 'SaveFormat', 'StructureWithTime');
+
 
 Simulation = InitializeModel(modelName, Initial, tEnd);
