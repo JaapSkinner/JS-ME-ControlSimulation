@@ -1,17 +1,16 @@
 N_samples = 1000;
 N_motors = 8;
-resultsFolder = 'simulationResults';
+resultsFolder = 'Results/ParameterEstimation/MonteCarlo/temp';
 if ~exist(resultsFolder, 'dir')
     mkdir(resultsFolder);
 end
 
-% Load nominals, variationPercent, distTypes as needed
-run('ParameterEstimationBase.m');
+run('ParameterEstimationBaseOL.m');
 Motor_nom = Motor;
 Uav_nom = Uav;
-variationPercent = 5 * ones(16,1);
+Uav_nom.COM = [0 0 0];
+variationPercent = 15 * ones(17,1);
 
-% Define your setpoints (example 10x6 matrix)
 setpoints = [
     0      0      0    1.2    1.3    1.0;
     0.05   0.05   0    1.4    0.0    1.2;
@@ -25,26 +24,37 @@ setpoints = [
     0      0      0    0.0    0.0    1.3;
 ];
 
-parfor i = 1:N_samples
+for i = 1:N_samples
     [Motor_i, Uav_i, features_i] = sampleParameters(Motor_nom, Uav_nom, variationPercent, [], N_motors);
 
-    % Preallocate results storage
-    simResults = struct();
+    % Prepare SimulationInput objects for all setpoints
     nSetpoints = size(setpoints,1);
+    simInputs(nSetpoints) = Simulink.SimulationInput(modelName); % preallocate array
 
     for sp = 1:nSetpoints
         spVal = setpoints(sp,:);
-        % Run simulation for this setpoint with Motor_i, Uav_i, spVal
-        % Example placeholder:
-        % [output] = runYourSim(Motor_i, Uav_i, spVal);
+        simInputs(sp) = Simulink.SimulationInput(modelName); % <-- set modelName here
+        simInputs(sp) = simInputs(sp).setVariable('Simulation', Simulation);
+        simInputs(sp) = simInputs(sp).setVariable('Uav', Uav_i);
+        simInputs(sp) = simInputs(sp).setVariable('Motor', Motor_i);
+        simInputs(sp) = simInputs(sp).setVariable('Initial', Initial);
+        simInputs(sp) = simInputs(sp).setVariable('Aero', Aero); % if needed
+        simInputs(sp) = simInputs(sp).setVariable('setpoint', spVal);
+    end
 
-        % Store output keyed by setpoint index or value
-        simResults(sp).setpoint = spVal;
-        % simResults(sp).output = output;  % uncomment when ready
-        % optionally also store features_i if you want per setpoint
+
+    % Run all simulations in parallel for the setpoints
+    simOuts = parsim(simInputs, 'ShowProgress', 'on');
+
+    % Collect results
+    simResults = struct();
+    for sp = 1:nSetpoints
+        simResults(sp).setpoint = setpoints(sp,:);
+        simResults(sp).TBody = simOuts(sp).TBody;
+        simResults(sp).tauBody = simOuts(sp).tauBody;
     end
 
     dataStruct = struct('Motor_i', Motor_i, 'Uav_i', Uav_i, 'features_i', features_i, 'simResults', simResults);
     filename = fullfile(resultsFolder, sprintf('simResult_%04d.mat', i));
-    save(filename, '-fromstruct', 'dataStruct');
+    save(filename, '-fromstruct', dataStruct);
 end

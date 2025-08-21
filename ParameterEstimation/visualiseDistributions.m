@@ -6,8 +6,9 @@ N_motors  = 8;
 run('ParameterEstimationBase.m');
 Motor_nom = Motor;
 Uav_nom   = Uav;
+Uav_nom.COM = [0 0 0];
 
-variationPercent = 5 * ones(16,1);  % 5% variation everywhere
+variationPercent = 5 * ones(17,1);  % 5% variation everywhere
 
 % Storage
 features = cell(N_samples, 1);
@@ -39,6 +40,7 @@ paramList = {
     'A_UAV', false;
     'A_PROP', false;
     'ZETA', false;
+    'COM', false;
 };
 
 figure('Position', [100 100 1200 900]);

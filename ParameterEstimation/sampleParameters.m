@@ -1,6 +1,6 @@
 function [Motor, Uav, variationFeatures] = sampleParameters(Motor_nom, Uav_nom, variationPercent, distTypes, N_motors)
     if isempty(distTypes)
-        distTypes = repmat({'normal'}, 16, 1);
+        distTypes = repmat({'normal'}, 17, 1); % now 17 because COM is added
     end
 
     Motor = Motor_nom;
@@ -25,6 +25,7 @@ function [Motor, Uav, variationFeatures] = sampleParameters(Motor_nom, Uav_nom, 
         'Uav',   'A_UAV';
         'Uav',   'A_PROP';
         'Uav',   'ZETA';
+        'Uav',   'COM'; % new entry
     };
 
     % Parameters that have N_motors elements
@@ -33,16 +34,21 @@ function [Motor, Uav, variationFeatures] = sampleParameters(Motor_nom, Uav_nom, 
     % 3-element vector params
     vector3Params = ["I", "COM"];
 
-    for i = 1:length(paramList)
-        structName = paramList{i,1};
-        fieldName  = paramList{i,2};
-        distType   = distTypes{i};
-        percent    = variationPercent(i)/100;
+    % --- First pass: COM shift ---
+    comIdx = find(strcmp(paramList(:,2), 'COM'));
+    if ~isempty(comIdx)
+        structName = paramList{comIdx,1};
+        fieldName  = paramList{comIdx,2};
+        distType   = distTypes{comIdx};
+        percent    = variationPercent(comIdx)/100;
 
         nominal = eval([structName '_nom.' fieldName]);
-        sigma   = abs(nominal) * percent;
+        absSigma = [0.01, 0.01, 0.02]; % 10mm, 10mm, 20mm in meters
+        if (percent == 0)
+            absSigma = [0 0 0];
+        end
+        sigma = max(abs(nominal) * percent, absSigma);
 
-        % Sample
         switch distType
             case 'normal'
                 sampled = nominal + sigma .* randn(size(nominal));
@@ -52,10 +58,45 @@ function [Motor, Uav, variationFeatures] = sampleParameters(Motor_nom, Uav_nom, 
                 error(['Unknown distribution: ' distType]);
         end
 
-        % Assign sampled
         eval([structName '.' fieldName ' = sampled;']);
 
-        % Deviation metrics
+        delta = sampled - nominal;
+        v = struct();
+        v.per_axis_deviation = delta(:)'; % 1x3 [dx dy dz]
+        variationFeatures.(fieldName) = v;
+        
+        % Shift motor positions
+        Uav.MotorLoc(:,1:3) = Uav.MotorLoc(:,1:3) - repmat(delta(:)', size(Uav.MotorLoc,1), 1);
+        
+        % Recalculate distance to centroid (4th column)
+        Uav.MotorLoc(:,4) = sqrt(sum(Uav.MotorLoc(:,1:3).^2, 2));
+    end
+
+    % --- Second pass: all other params ---
+    for i = 1:length(paramList)
+        fieldName  = paramList{i,2};
+        if strcmp(fieldName, 'COM')
+            continue; % already done above
+        end
+
+        structName = paramList{i,1};
+        distType   = distTypes{i};
+        percent    = variationPercent(i)/100;
+
+        nominal = eval([structName '_nom.' fieldName]);
+        sigma   = abs(nominal) * percent;
+
+        switch distType
+            case 'normal'
+                sampled = nominal + sigma .* randn(size(nominal));
+            case 'uniform'
+                sampled = nominal + (2 * rand(size(nominal)) - 1) .* sigma;
+            otherwise
+                error(['Unknown distribution: ' distType]);
+        end
+
+        eval([structName '.' fieldName ' = sampled;']);
+
         delta = sampled - nominal;
         v = struct();
         v.mean_deviation = mean(abs(delta(:)));
@@ -65,15 +106,9 @@ function [Motor, Uav, variationFeatures] = sampleParameters(Motor_nom, Uav_nom, 
             v.std_across_motors = std(sampled(:));
             v.range = max(sampled(:)) - min(sampled(:));
         elseif strcmp(fieldName, 'I')
-            % Extract diagonal elements deviation only for inertia matrix
             deltaDiag = diag(delta)';
-            v.per_axis_deviation = deltaDiag;  % 1x3 vector
-        elseif strcmp(fieldName, 'COM')
-            % For COM, just difference vector
-            v.per_axis_deviation = delta(:)'; % ensure 1x3 vector
+            v.per_axis_deviation = deltaDiag;
         end
-
-
 
         variationFeatures.(fieldName) = v;
     end
