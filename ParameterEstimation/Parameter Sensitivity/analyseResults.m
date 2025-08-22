@@ -1,15 +1,16 @@
 % =========================================================================
-% ANALYZE MONTE CARLO PARAMETER SENSITIVITY (v7 - Final w/ Progress Bar)
+% ANALYZE MONTE CARLO PARAMETER SENSITIVITY (v7 - Deviation Magnitude)
 % =========================================================================
 % This script performs a sensitivity analysis on the Monte Carlo results.
 %
 % VERSION 7 REFINEMENTS:
-% - Added an infrequent progress indicator to the main processing loop.
+% - Plots against the MAGNITUDE of parameter deviation from nominal to
+%   reveal the true correlation between deviation and error (fixes the "V-shape" problem).
 %
 clear; clc; close all;
 
 % --- User Settings ---
-verbose = false; % Set to 'true' to see detailed progress and summaries in the console
+verbose = false; 
 
 % --- 1. Get Maximum Wrench Authority for Normalization ---
 if verbose, fprintf('Step 1: Calculating Maximum Wrench Authority...\n'); end
@@ -56,10 +57,11 @@ nSetpoints = size(setpoints, 1);
 is_single_axis = (sum(setpoints~=0,2)==1) | (sum(setpoints~=0,2)==2 & setpoints(:,3)~=0);
 single_axis_indices = find(is_single_axis);
 
+% --- CHANGED: Updated variable names for clarity (AbsDev) ---
 varNames = {'Score_Error', 'Score_Leakage', ...
-            'CoG_Dev_X', 'CoG_Dev_Y', 'CoG_Dev_Z', ...
+            'CoG_AbsDev_X', 'CoG_AbsDev_Y', 'CoG_AbsDev_Z', ...
             'StdDev_KV', 'Range_KV', 'StdDev_R', 'Range_R', ...
-            'StdDev_I0', 'Range_I0', 'Mass', 'Inertia_Dev_Magnitude'};
+            'StdDev_I0', 'Range_I0', 'Mass_AbsDev', 'Inertia_AbsDev_Mag'};
 varTypes = repmat({'double'}, 1, length(varNames));
 results_table = table('Size', [numFiles, length(varNames)], ...
                       'VariableTypes', varTypes, 'VariableNames', varNames);
@@ -84,10 +86,17 @@ for i = 1:numFiles
     results_table.Score_Error(i) = mean(current_run_errors);
     results_table.Score_Leakage(i) = mean(current_run_leakages);
     
+    % --- CHANGED: Extract ABSOLUTE DEVIATION from nominal ---
+    
+    % For CoG, nominal is 0, so we take the absolute value of the deviation.
     if isfield(data.Sampled_features, 'COM') && isfield(data.Sampled_features.COM, 'per_axis_deviation')
         cog_dev = data.Sampled_features.COM.per_axis_deviation;
-        results_table.CoG_Dev_X(i) = cog_dev(1); results_table.CoG_Dev_Y(i) = cog_dev(2); results_table.CoG_Dev_Z(i) = cog_dev(3);
+        results_table.CoG_AbsDev_X(i) = abs(cog_dev(1));
+        results_table.CoG_AbsDev_Y(i) = abs(cog_dev(2));
+        results_table.CoG_AbsDev_Z(i) = abs(cog_dev(3));
     end
+    
+    % For spread metrics (StdDev, Range), the value IS the deviation from nominal (0).
     if isfield(data.Sampled_features, 'K_V')
         results_table.StdDev_KV(i) = data.Sampled_features.K_V.std_across_motors;
         results_table.Range_KV(i)  = data.Sampled_features.K_V.range;
@@ -100,17 +109,18 @@ for i = 1:numFiles
         results_table.StdDev_I0(i) = data.Sampled_features.I_0.std_across_motors;
         results_table.Range_I0(i)  = data.Sampled_features.I_0.range;
     end
+    
+    % For Mass, the feature is already a deviation, so we take its absolute value.
     if isfield(data.Sampled_features, 'M')
-        results_table.Mass(i) = data.Sampled_features.M.mean_deviation;
-    end
-    if isfield(data.Sampled_features, 'I') && isfield(data.Sampled_features.I, 'per_axis_deviation')
-        results_table.Inertia_Dev_Magnitude(i) = norm(data.Sampled_features.I.per_axis_deviation);
-    else
-        results_table.Inertia_Dev_Magnitude(i) = NaN;
+        results_table.Mass_AbsDev(i) = abs(data.Sampled_features.M.mean_deviation);
     end
     
-    % --- NEW: Infrequent Progress Indicator ---
-    % This will print an update every 100 files, and for the very last file.
+    if isfield(data.Sampled_features, 'I') && isfield(data.Sampled_features.I, 'per_axis_deviation')
+        results_table.Inertia_AbsDev_Mag(i) = norm(data.Sampled_features.I.per_axis_deviation);
+    else
+        results_table.Inertia_AbsDev_Mag(i) = NaN;
+    end
+    
     if mod(i, 500) == 0 || i == numFiles
         fprintf('... Progress: %.0f%% (%d / %d files processed)\n', (i/numFiles)*100, i, numFiles);
     end

@@ -4,12 +4,14 @@
 clear; clc; close all;
 
 % --- 1. Simulation Setup ---
-N_samples = 100000;
+N_samples = 10000;
 N_motors = 8;
 resultsFolder = 'Results/ParameterEstimation/MonteCarlo/wrench_calculation';
-if ~exist(resultsFolder, 'dir')
-    mkdir(resultsFolder);
+
+if exist(resultsFolder, 'dir')
+    delete(fullfile(resultsFolder, '*'));
 end
+mkdir(resultsFolder);
 
 % Load base parameters. This script MUST define 'M', 'u_min'/'u_max', and
 % the torque scaling factors 'alpha_Tx', 'alpha_Ty', 'alpha_Tz'.
@@ -18,7 +20,7 @@ run('ParameterEstimationBaseOL.m');
 Motor_nom = Motor;
 Uav_nom = Uav;
 Uav_nom.COM = [0 0 0];
-variationPercent = 15 * ones(17,1);
+variationPercent = 0 * ones(17,1);
 
 % Define the setpoints to be tested for EACH parameter sample.
 % Each row is a desired NORMALIZED WRENCH setpoint: [Fx, Fy, Fz, Tx, Ty, Tz]
@@ -56,6 +58,7 @@ fprintf('Each sample will be tested against %d 6-DOF wrench setpoints.\n', nSetp
 % --- 2. Main Monte Carlo Loop ---
 for i = 1:N_samples
     [Motor_i, Uav_i, features_i] = sampleParameters(Motor_nom, Uav_nom, variationPercent, [], N_motors);
+    Uav_i.COM = [0,0,0];
 
     % --- Assemble the 'params' struct required by computeWrench ---
     params = struct();
@@ -140,7 +143,7 @@ for i = 1:N_samples
     filename = fullfile(resultsFolder, sprintf('simResult_%04d.mat', i));
     save(filename, '-struct', 'dataStruct');
 
-    if mod(i, 50) == 0
+    if mod(i, 500) == 0
         fprintf('  Completed and saved sample %d / %d.\n', i, N_samples);
     end
 end

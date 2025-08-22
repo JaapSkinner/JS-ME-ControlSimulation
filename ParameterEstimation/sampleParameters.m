@@ -43,10 +43,10 @@ function [Motor, Uav, variationFeatures] = sampleParameters(Motor_nom, Uav_nom, 
         percent    = variationPercent(comIdx)/100;
 
         nominal = eval([structName '_nom.' fieldName]);
-        absSigma = [0.01, 0.01, 0.02]; % 10mm, 10mm, 20mm in meters
-        if (percent == 0)
-            absSigma = [0 0 0];
-        end
+        absSigma = [0.01, 0.01, 0.05]; % 10mm, 10mm, 20mm in meters
+        % if (percent == 0)
+        %     absSigma = [0 0 0];
+        % end
         sigma = max(abs(nominal) * percent, absSigma);
 
         switch distType
