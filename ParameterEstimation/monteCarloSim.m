@@ -4,7 +4,7 @@
 clear; clc; close all;
 
 % --- 1. Simulation Setup ---
-N_samples = 1000;
+N_samples = 100000;
 N_motors = 8;
 resultsFolder = 'Results/ParameterEstimation/MonteCarlo/wrench_calculation';
 if ~exist(resultsFolder, 'dir')
@@ -21,18 +21,32 @@ Uav_nom.COM = [0 0 0];
 variationPercent = 15 * ones(17,1);
 
 % Define the setpoints to be tested for EACH parameter sample.
-% Each row is a desired WRENCH setpoint: [Fx, Fy, Fz, Tx, Ty, Tz]
+% Each row is a desired NORMALIZED WRENCH setpoint: [Fx, Fy, Fz, Tx, Ty, Tz]
+% Fz is in [0, 1], all others are in [-1, 1].
+
 setpoints = [
-    0      0      15.0   0.1    0.1    0.05;
-    0.5   -0.5    16.0   0.0    0.0    0.1;
-    -0.5   0.5    14.0   0.0    0.0   -0.1;
-    0.2    0.1    15.5  -0.1    0.2    0.0;
-    0      0      18.0   0.2    0.0    0.0;
-    0      0      12.0   0.0   -0.2    0.0;
-    1.0    0      15.0   0.0    0.0    0.0;
-   -1.0    0      15.0   0.0    0.0    0.0;
-    0      1.0    15.0   0.0    0.0    0.0;
-    0     -1.0    15.0   0.0    0.0    0.0;
+    % --- Single-Axis Positive Tests (with 50% baseline hover thrust) ---
+    % Fx, Fy, Fz, Tx, Ty, Tz
+    0.7,   0,   0.5,   0,   0,   0;      % 1: Strong forward thrust (Fx)
+      0, 0.7,   0.5,   0,   0,   0;      % 2: Strong right thrust (Fy)
+      0,   0,   0.9,   0,   0,   0;      % 3: High vertical thrust (Fz)
+      0,   0,   0.5, 0.7,   0,   0;      % 4: Strong roll right torque (Tx)
+      0,   0,   0.5,   0, 0.7,   0;      % 5: Strong pitch forward torque (Ty)
+      0,   0,   0.5,   0,   0, 0.7;      % 6: Strong yaw right torque (Tz)
+
+    % --- Single-Axis Negative Tests ---
+   -0.7,   0,   0.5,   0,   0,   0;      % 7: Strong backward thrust (Fx)
+      0, -0.7,   0.5,   0,   0,   0;      % 8: Strong left thrust (Fy)
+      0,   0,   0.1,   0,   0,   0;      % 9: Low vertical thrust (Fz)
+      0,   0,   0.5,-0.7,   0,   0;      % 10: Strong roll left torque (Tx)
+      0,   0,   0.5,   0,-0.7,   0;      % 11: Strong pitch backward torque (Ty)
+      0,   0,   0.5,   0,   0,-0.7;      % 12: Strong yaw left torque (Tz)
+
+    % --- Combination Tests ---
+    0.5,   0,   0.6,   0, 0.5,   0;      % 13: Forward flight (Fx + Ty)
+      0, -0.5,   0.6, 0.5,   0,   0;      % 14: Rolling while moving left (Fy + Tx)
+      0,   0,   0.8,   0,   0, 0.5;      % 15: High thrust climb with yaw
+    0.2, 0.2,   0.7,-0.3, 0.3,-0.2;      % 16: Complex maneuver: forward-right, climbing, and turning
 ];
 nSetpoints = size(setpoints, 1);
 fprintf('Starting Monte Carlo simulation with %d parameter samples.\n', N_samples);
@@ -98,7 +112,7 @@ for i = 1:N_samples
         R_m_b = Uav_i.R_MOTOR_TO_BODY(:,:,m);
         T_body_i = R_m_b * t_m;
         tau_body_i = R_m_b * tau_m;
-        
+
         % Select only the first 3 elements [x,y,z] for the position vector
         r_i = Uav_i.MotorLoc(m, 1:3)';
         
