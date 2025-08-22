@@ -1,12 +1,10 @@
 % =========================================================================
-% ANALYZE MONTE CARLO PARAMETER SENSITIVITY (v6 - Robust)
+% ANALYZE MONTE CARLO PARAMETER SENSITIVITY (v7 - Final w/ Progress Bar)
 % =========================================================================
 % This script performs a sensitivity analysis on the Monte Carlo results.
 %
-% VERSION 6 REFINEMENTS:
-% - Pre-allocates the results table and handles any missing feature data by
-%   assigning NaN, which completely removes the console warning and
-%   improves plotting accuracy.
+% VERSION 7 REFINEMENTS:
+% - Added an infrequent progress indicator to the main processing loop.
 %
 clear; clc; close all;
 
@@ -58,7 +56,6 @@ nSetpoints = size(setpoints, 1);
 is_single_axis = (sum(setpoints~=0,2)==1) | (sum(setpoints~=0,2)==2 & setpoints(:,3)~=0);
 single_axis_indices = find(is_single_axis);
 
-% --- FIXED: Pre-allocate the entire table with all columns ---
 varNames = {'Score_Error', 'Score_Leakage', ...
             'CoG_Dev_X', 'CoG_Dev_Y', 'CoG_Dev_Z', ...
             'StdDev_KV', 'Range_KV', 'StdDev_R', 'Range_R', ...
@@ -70,7 +67,6 @@ results_table = table('Size', [numFiles, length(varNames)], ...
 for i = 1:numFiles
     data = load(fullfile(resultFiles(i).folder, resultFiles(i).name));
     
-    % --- Calculate Scores (unchanged) ---
     current_run_errors = zeros(nSetpoints, 1);
     current_run_leakages = [];
     for sp = 1:nSetpoints
@@ -88,18 +84,10 @@ for i = 1:numFiles
     results_table.Score_Error(i) = mean(current_run_errors);
     results_table.Score_Leakage(i) = mean(current_run_leakages);
     
-    % --- FIXED: Robustly extract parameter features, handling missing fields ---
-    % This new structure prevents the warning by explicitly checking each field.
-    
-    % CoG Deviation
     if isfield(data.Sampled_features, 'COM') && isfield(data.Sampled_features.COM, 'per_axis_deviation')
         cog_dev = data.Sampled_features.COM.per_axis_deviation;
-        results_table.CoG_Dev_X(i) = cog_dev(1);
-        results_table.CoG_Dev_Y(i) = cog_dev(2);
-        results_table.CoG_Dev_Z(i) = cog_dev(3);
-    end % Note: table was pre-filled with 0 or NaN, so no 'else' needed if pre-filled with NaN
-    
-    % Motor Spread Features
+        results_table.CoG_Dev_X(i) = cog_dev(1); results_table.CoG_Dev_Y(i) = cog_dev(2); results_table.CoG_Dev_Z(i) = cog_dev(3);
+    end
     if isfield(data.Sampled_features, 'K_V')
         results_table.StdDev_KV(i) = data.Sampled_features.K_V.std_across_motors;
         results_table.Range_KV(i)  = data.Sampled_features.K_V.range;
@@ -112,19 +100,24 @@ for i = 1:numFiles
         results_table.StdDev_I0(i) = data.Sampled_features.I_0.std_across_motors;
         results_table.Range_I0(i)  = data.Sampled_features.I_0.range;
     end
-    
-    % UAV Body Features
     if isfield(data.Sampled_features, 'M')
         results_table.Mass(i) = data.Sampled_features.M.mean_deviation;
     end
     if isfield(data.Sampled_features, 'I') && isfield(data.Sampled_features.I, 'per_axis_deviation')
         results_table.Inertia_Dev_Magnitude(i) = norm(data.Sampled_features.I.per_axis_deviation);
+    else
+        results_table.Inertia_Dev_Magnitude(i) = NaN;
+    end
+    
+    % --- NEW: Infrequent Progress Indicator ---
+    % This will print an update every 100 files, and for the very last file.
+    if mod(i, 500) == 0 || i == numFiles
+        fprintf('... Progress: %.0f%% (%d / %d files processed)\n', (i/numFiles)*100, i, numFiles);
     end
 end
 fprintf('Processing complete.\n\n');
 
 % --- 4. Display Final Statistical Summary ---
-% (Display logic is unchanged)
 fprintf('================ OVERALL STATISTICAL SUMMARY ================\n');
 fprintf('Based on the average scores from %d unique parameter sets.\n\n', numFiles);
 fprintf('--- Average Error Score Distribution ---\n');
@@ -137,7 +130,6 @@ fprintf('===========================================================\n');
 
 
 % --- 5. Generate Sensitivity Plots ---
-% (Plotting logic is unchanged, but now more robust to missing data)
 parameters_to_plot = results_table.Properties.VariableNames(3:end);
 num_params = length(parameters_to_plot);
 
@@ -148,13 +140,11 @@ for i = 1:num_params
     param_name = parameters_to_plot{i};
     x_data = results_table.(param_name);
     y_data = results_table.Score_Error;
-    
     subplot(ceil(num_params/4), 4, i);
     scatter(x_data, y_data, 25, 'b', 'filled', 'MarkerFaceAlpha', 0.4);
     hold on;
-    
     valid_indices = ~isnan(x_data) & ~isnan(y_data);
-    if sum(valid_indices) > 1 % Need at least 2 points for a line
+    if sum(valid_indices) > 1 
         p = polyfit(x_data(valid_indices), y_data(valid_indices), 1);
         y_fit = polyval(p, sort(x_data(valid_indices)));
         plot(sort(x_data(valid_indices)), y_fit, 'r-', 'LineWidth', 2);
@@ -164,7 +154,6 @@ for i = 1:num_params
     else
         title(sprintf('%s (not enough data)', strrep(param_name, '_', ' ')));
     end
-    
     grid on;
     xlabel(strrep(param_name, '_', ' '));
     ylabel('Avg Error Score');
@@ -177,11 +166,9 @@ for i = 1:num_params
     param_name = parameters_to_plot{i};
     x_data = results_table.(param_name);
     y_data = results_table.Score_Leakage;
-    
     subplot(ceil(num_params/4), 4, i);
     scatter(x_data, y_data, 25, 'b', 'filled', 'MarkerFaceAlpha', 0.4);
     hold on;
-    
     valid_indices = ~isnan(x_data) & ~isnan(y_data);
     if sum(valid_indices) > 1
         p = polyfit(x_data(valid_indices), y_data(valid_indices), 1);
@@ -193,7 +180,6 @@ for i = 1:num_params
     else
         title(sprintf('%s (not enough data)', strrep(param_name, '_', ' ')));
     end
-    
     grid on;
     xlabel(strrep(param_name, '_', ' '));
     ylabel('Avg Leakage Score (%)');
