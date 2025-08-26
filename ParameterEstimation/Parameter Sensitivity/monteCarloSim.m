@@ -4,7 +4,7 @@
 clear; clc; close all;
 
 % --- 1. Simulation Setup ---
-N_samples = 10000;
+N_samples = 5000;
 N_motors = 8;
 resultsFolder = 'Results/ParameterEstimation/MonteCarlo/wrench_calculation';
 
@@ -27,22 +27,22 @@ variationPercent = 0 * ones(17,1);
 % Fz is in [0, 1], all others are in [-1, 1].
 
 setpoints = [
-    % --- Single-Axis Positive Tests (with 50% baseline hover thrust) ---
+    % --- Single-Axis Positive Tests (with 0% baseline hover thrust) ---
     % Fx, Fy, Fz, Tx, Ty, Tz
-    0.7,   0,   0.5,   0,   0,   0;      % 1: Strong forward thrust (Fx)
-      0, 0.7,   0.5,   0,   0,   0;      % 2: Strong right thrust (Fy)
+      0.7,   0,   0,   0,   0,   0;        % 1: Strong forward thrust (Fx)
+      0, 0.7,   0,   0,   0,   0;      % 2: Strong right thrust (Fy)
       0,   0,   0.9,   0,   0,   0;      % 3: High vertical thrust (Fz)
-      0,   0,   0.5, 0.7,   0,   0;      % 4: Strong roll right torque (Tx)
-      0,   0,   0.5,   0, 0.7,   0;      % 5: Strong pitch forward torque (Ty)
-      0,   0,   0.5,   0,   0, 0.7;      % 6: Strong yaw right torque (Tz)
+      0,   0,   0, 0.7,   0,   0;      % 4: Strong roll right torque (Tx)
+      0,   0,   0,   0, 0.7,   0;      % 5: Strong pitch forward torque (Ty)
+      0,   0,   0,   0,   0, 0.7;      % 6: Strong yaw right torque (Tz)
 
     % --- Single-Axis Negative Tests ---
-   -0.7,   0,   0.5,   0,   0,   0;      % 7: Strong backward thrust (Fx)
-      0, -0.7,   0.5,   0,   0,   0;      % 8: Strong left thrust (Fy)
+   -0.7,   0,   0,   0,   0,   0;      % 7: Strong backward thrust (Fx)
+      0, -0.7,   0,   0,   0,   0;      % 8: Strong left thrust (Fy)
       0,   0,   0.1,   0,   0,   0;      % 9: Low vertical thrust (Fz)
-      0,   0,   0.5,-0.7,   0,   0;      % 10: Strong roll left torque (Tx)
-      0,   0,   0.5,   0,-0.7,   0;      % 11: Strong pitch backward torque (Ty)
-      0,   0,   0.5,   0,   0,-0.7;      % 12: Strong yaw left torque (Tz)
+      0,   0,   0,-0.7,   0,   0;      % 10: Strong roll left torque (Tx)
+      0,   0,   0,   0,-0.7,   0;      % 11: Strong pitch backward torque (Ty)
+      0,   0,   0,   0,   0,-0.7;      % 12: Strong yaw left torque (Tz)
 
     % --- Combination Tests ---
     0.5,   0,   0.6,   0, 0.5,   0;      % 13: Forward flight (Fx + Ty)
