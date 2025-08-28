@@ -1,20 +1,22 @@
 % =========================================================================
-% VISUALIZE SINGLE MONTE CARLO RESULT (v4 - Per-Axis Normalization)
+% VISUALIZE SINGLE MONTE CARLO RESULT (v5 - Advanced Normalization)
 % =========================================================================
 % This script loads a single data file and creates a summary plot.
 %
-% VERSION 4 REFINEMENTS:
-% - Uses the 6-element 'max_authority' vector for precise, per-axis
-%   normalization, consistent with the advanced analysis scripts.
+% VERSION 5 REFINEMENTS:
+% - Uses the 'norm_params' struct for precise, per-axis normalization,
+%   including the min-max scaling for Fz to account for thrust offset.
 %
 clear; clc; close all;
 
 % --- User Settings ---
 normalize_output = true; 
 
-% Define the 6-DOF maximum authority vector for per-axis normalization.
-% >>> COPY AND PASTE the output from the calculateMaxWrench.m script here. <<<
-max_authority = [4.0416; 4.0416; 40.6237; 1.1631; 1.1631; 1.1290];
+% =========================================================================
+% >>> COPY AND PASTE the norm_params struct from the calculateMaxWrench.m script here. <<<
+norm_params = struct();
+norm_params.max_authority = [3.4015; 3.3103; 24.4154; 0.4242; 0.3990; 0.0555];
+norm_params.min_thrust_offset = 6.7169;
 % =========================================================================
 
 % --- 1. Load a Result File ---
@@ -40,7 +42,6 @@ fprintf('\n--- End of Summary ---\n\n');
 % --- 3. Prepare Data for Plotting ---
 nSetpoints = size(data.setpoints, 1);
 setpoint_indices = 1:nSetpoints;
-
 wrench_to_plot = data.wrenches; 
 y_label_force = 'Force (N)';
 y_label_torque = 'Torque (Nm)';
@@ -49,13 +50,24 @@ plot_title_suffix = '(Physical Units)';
 % Invert the Z-axis force for intuitive plotting (Z-up is positive on the graph)
 wrench_to_plot(3, :) = -wrench_to_plot(3, :);
 
-% --- MODIFIED: Per-Axis Normalization ---
+% --- MODIFIED: Advanced Per-Axis Normalization ---
 if normalize_output
-    fprintf('Normalizing outputs using per-axis max_authority vector...\n');
+    fprintf('Normalizing outputs using per-axis max_authority and thrust offset...\n');
     
-    % Perform element-wise division to normalize each of the 6 components by its own maximum
-    wrench_to_plot = wrench_to_plot ./ max_authority;
+    % Extract values from the struct for convenience
+    max_authority = norm_params.max_authority;
+    min_thrust_offset = norm_params.min_thrust_offset;
+
+    % Normalize Fx, Fy, and all torques by their simple max authority
+    wrench_to_plot([1,2,4,5,6], :) = wrench_to_plot([1,2,4,5,6], :) ./ max_authority([1,2,4,5,6]);
     
+    % For Fz, use min-max normalization to account for the offset
+    max_fz_output = max_authority(3);
+    thrust_range = max_fz_output - min_thrust_offset;
+    if thrust_range > 0
+        wrench_to_plot(3, :) = (wrench_to_plot(3, :) - min_thrust_offset) / thrust_range;
+    end
+
     wrench_to_plot = max(-1, min(1, wrench_to_plot)); % Clip result to [-1, 1]
     
     y_label_force = 'Normalized Force Command / Output';
@@ -66,6 +78,7 @@ end
 
 % --- 4. Visualize Inputs vs. Outputs ---
 figure('Name', ['Visualization for ', fileName], 'NumberTitle', 'off', 'Position', [100, 100, 900, 700]);
+
 % Subplot 1: Forces
 subplot(2, 1, 1);
 hold on;
