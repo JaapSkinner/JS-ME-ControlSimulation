@@ -31,7 +31,7 @@ clear; clc; close all;
 % 14: Rolling while moving left (Fy=-0.5, Tx=0.5)
 % 15: High thrust climb with yaw (Fz=0.8, Tz=0.5)
 % 16: Complex maneuver (multiple inputs)
-setpoint_to_analyze = 1; % <--- CHANGE THIS VALUE
+setpoint_to_analyze = 3; % <--- CHANGE THIS VALUE
 % =========================================================================
 
 

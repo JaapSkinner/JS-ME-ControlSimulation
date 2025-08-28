@@ -1,17 +1,21 @@
 % =========================================================================
-% VISUALIZE SINGLE MONTE CARLO RESULT (v3 - Z-Axis Inverted Plot)
+% VISUALIZE SINGLE MONTE CARLO RESULT (v4 - Per-Axis Normalization)
 % =========================================================================
 % This script loads a single data file and creates a summary plot.
-% It now includes an option to normalize the output wrench.
-% CRUCIALLY, it inverts the Z-axis force for plotting to match the intuitive
-% 'Z-up' convention, while the underlying data remains in the 'Z-down' frame.
+%
+% VERSION 4 REFINEMENTS:
+% - Uses the 6-element 'max_authority' vector for precise, per-axis
+%   normalization, consistent with the advanced analysis scripts.
 %
 clear; clc; close all;
 
 % --- User Settings ---
 normalize_output = true; 
-nominal_max_force = 41.0;
-nominal_max_torque = 1.2;
+
+% Define the 6-DOF maximum authority vector for per-axis normalization.
+% >>> COPY AND PASTE the output from the calculateMaxWrench.m script here. <<<
+max_authority = [4.0416; 4.0416; 40.6237; 1.1631; 1.1631; 1.1290];
+% =========================================================================
 
 % --- 1. Load a Result File ---
 [fileName, pathName] = uigetfile('*.mat', 'Select a Monte Carlo Result File');
@@ -23,8 +27,7 @@ fullFilePath = fullfile(pathName, fileName);
 fprintf('Loading data from: %s\n', fullFilePath);
 data = load(fullFilePath);
 
-% --- 2. Display Parameter Variations (Unchanged) ---
-% ... (this section is the same as before) ...
+% --- 2. Display Parameter Variations ---
 fprintf('\n--- Parameter Variation Summary for this Run ---\n');
 fprintf('Motor Thrust Constant (Kt) Stats:\n');
 fprintf('  - Mean: %.4e\n', mean(data.Motor_params.K_T));
@@ -33,7 +36,6 @@ fprintf('Motor Resistance (R) Stats:\n');
 fprintf('  - Mean: %.4f Ohms\n', mean(data.Motor_params.R));
 fprintf('  - Std Dev: %.4f Ohms (%.2f%% of mean)\n', std(data.Motor_params.R), 100*std(data.Motor_params.R)/mean(data.Motor_params.R));
 fprintf('\n--- End of Summary ---\n\n');
-
 
 % --- 3. Prepare Data for Plotting ---
 nSetpoints = size(data.setpoints, 1);
@@ -44,28 +46,26 @@ y_label_force = 'Force (N)';
 y_label_torque = 'Torque (Nm)';
 plot_title_suffix = '(Physical Units)';
 
-% --- NEW CHANGE IS HERE ---
 % Invert the Z-axis force for intuitive plotting (Z-up is positive on the graph)
 wrench_to_plot(3, :) = -wrench_to_plot(3, :);
-% -------------------------
 
+% --- MODIFIED: Per-Axis Normalization ---
 if normalize_output
-    fprintf('Normalizing outputs with Max Force = %.1f N, Max Torque = %.1f Nm\n', ...
-        nominal_max_force, nominal_max_torque);
+    fprintf('Normalizing outputs using per-axis max_authority vector...\n');
     
-    wrench_to_plot(1:3, :) = wrench_to_plot(1:3, :) / nominal_max_force;
-    wrench_to_plot(4:6, :) = wrench_to_plot(4:6, :) / nominal_max_torque;
-    wrench_to_plot = max(-1, min(1, wrench_to_plot));
+    % Perform element-wise division to normalize each of the 6 components by its own maximum
+    wrench_to_plot = wrench_to_plot ./ max_authority;
+    
+    wrench_to_plot = max(-1, min(1, wrench_to_plot)); % Clip result to [-1, 1]
     
     y_label_force = 'Normalized Force Command / Output';
     y_label_torque = 'Normalized Torque Command / Output';
     plot_title_suffix = '(Normalized)';
 end
-
+% -----------------------------------------
 
 % --- 4. Visualize Inputs vs. Outputs ---
 figure('Name', ['Visualization for ', fileName], 'NumberTitle', 'off', 'Position', [100, 100, 900, 700]);
-
 % Subplot 1: Forces
 subplot(2, 1, 1);
 hold on;
@@ -85,7 +85,7 @@ xticks(setpoint_indices);
 xlim([0.5, nSetpoints + 0.5]);
 if normalize_output, ylim([-1.1, 1.1]); end
 
-% Subplot 2: Torques (Unchanged)
+% Subplot 2: Torques
 subplot(2, 1, 2);
 hold on;
 plot(setpoint_indices, wrench_to_plot(4,:), 'r-o', 'LineWidth', 1.5, 'DisplayName', 'Output Tx');
@@ -105,5 +105,4 @@ xlim([0.5, nSetpoints + 0.5]);
 if normalize_output, ylim([-1.1, 1.1]); end
 
 sgtitle(['Input vs. Output Wrench for ', strrep(fileName, '_', '\_')]);
-
 disp('Visualization complete.');

@@ -114,7 +114,7 @@ for i = 1:num_predictors
     grid on;
 end
 
-% Figure 2: Partial Regression Plots for Leakage Score
+%% Figure 2: Partial Regression Plots for Leakage Score
 figure('Name', 'Partial Regression: Leakage Score', 'NumberTitle', 'off', 'Position', [100, 100, 1400, 800]);
 sgtitle('Independent Effect of Each Parameter on Average Leakage Score', 'FontSize', 16, 'FontWeight', 'bold');
 for i = 1:num_predictors
