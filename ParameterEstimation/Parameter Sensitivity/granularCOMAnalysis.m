@@ -15,8 +15,8 @@ clear; clc; close all;
 % =========================================================================
 % >>> COPY AND PASTE the norm_params struct from the calculateMaxWrench.m script here. <<<
 norm_params = struct();
-norm_params.max_authority = [4.0416; 4.0416; 40.6237; 1.1631; 1.1631; 1.1290];
-norm_params.min_thrust_offset = 0.5312;
+norm_params.max_authority = [3.4015; 3.3103; 24.4154; 0.4242; 0.3990; 0.0555];
+norm_params.min_thrust_offset = 6.7169;
 % =========================================================================
 
 % --- 1. Load Data ---

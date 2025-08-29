@@ -4,7 +4,7 @@
 clear; clc; close all;
 
 % --- 1. Simulation Setup ---
-N_samples = 1;
+N_samples = 10000;
 N_motors = 8;
 resultsFolder = 'Results/ParameterEstimation/MonteCarlo/wrench_calculation';
 
@@ -20,7 +20,28 @@ run('ParameterEstimationBaseOL.m');
 Motor_nom = Motor;
 Uav_nom = Uav;
 Uav_nom.COM = [0 0 0];
-variationPercent = 0 * ones(17,1);
+variationPercent = [
+%   Parameter        % Variation | Justification
+%   -----------------|-----------|-------------------------------------------
+    3.0;             % K_V       | Motor manufacturing tolerance
+    3.0;             % K_E       | Linked to K_V
+    3.0;             % C_TAU     | Linked to K_V
+    1.0;             % B         | Motor damping (minor effect)
+    2.0;             % Volt_offset | ESC/electronics tolerance
+    2.0;             % volt_slope| ESC/electronics tolerance
+    5.0;             % R         | Varies with motor temp & quality
+    10.0;            % I_0       | No-load current, sensitive to bearings/friction
+    0.5;             % D_UAV     | Rigid airframe dimension
+    1.0;             % D_PROP    | Propeller manufacturing tolerance
+    2.0;             % M         | Overall mass variation (component weight, battery)
+    5.0;             % I         | Inertia, highly sensitive to component placement
+    10.0;            % RHO_AIR   | Environmental (temp, altitude, humidity)
+    1.0;             % R_PROP    | Propeller dimension
+    0.5;             % A_UAV     | Rigid airframe dimension
+    1.0;             % A_PROP    | Propeller manufacturing tolerance
+    5.0;             % ZETA      | Aerodynamic coefficient (often uncertain)
+    1.0;             % COM       | Set to 1 because it's driven by an absolute sigma
+];
 
 % Define the setpoints to be tested for EACH parameter sample.
 % Each row is a desired NORMALIZED WRENCH setpoint: [Fx, Fy, Fz, Tx, Ty, Tz]
