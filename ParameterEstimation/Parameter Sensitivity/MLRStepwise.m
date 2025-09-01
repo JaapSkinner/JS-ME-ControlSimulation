@@ -7,7 +7,7 @@
 % VERSION 4 REFINEMENTS:
 % - Rewritten data aggregation loop to be more robust and guarantee all
 %   parameters from 'varNames' are correctly processed.
-%
+%   
 clear; clc; close all;
 
 % --- User Settings ---
