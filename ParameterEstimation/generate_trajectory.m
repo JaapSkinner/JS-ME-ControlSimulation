@@ -11,8 +11,8 @@ simulation_time = 60; % [s] Total duration of the trajectory
 dt = 0.01;            % [s] Sample time, should match Simulink's solver
 
 % Amplitudes of motion
-amp_x = 2.0; % [m]
-amp_y = 2.0; % [m]
+amp_x = 0.0; % [m]
+amp_y = 0.0; % [m]
 amp_z = 1.0; % [m]
 
 % Frequencies of motion (using different frequencies creates complex paths)
