@@ -11,14 +11,14 @@ simulation_time = 60; % [s] Total duration of the trajectory
 dt = 0.01;            % [s] Sample time, should match Simulink's solver
 
 % Amplitudes of motion
-amp_x = 0.0; % [m]
-amp_y = 0.0; % [m]
+amp_x = 2.0; % [m]
+amp_y = 2.0; % [m]
 amp_z = 1.0; % [m]
 
 % Frequencies of motion (using different frequencies creates complex paths)
-freq_x = 0.5; % [Hz]
-freq_y = 0.3; % [Hz]
-freq_z = 0.25; % [Hz]
+freq_x = 0.025; % [Hz]
+freq_y = 0.05; % [Hz]
+freq_z = 0.1; % [Hz]
 
 % Yaw motion parameters
 yaw_rate_max = pi/4; % [rad/s]
@@ -29,7 +29,7 @@ t = (0:dt:simulation_time)';
 % --- Generate Position Setpoints [x, y, z] ---
 % This creates a smooth, continuous path that explores the 3D space.
 x_des = amp_x * sin(2 * pi * freq_x * t);
-y_des = amp_y * cos(2 * pi * freq_y * t);
+y_des = amp_y * sin(2 * pi * freq_y * t);
 z_des = -amp_z * (1 - cos(2 * pi * freq_z * t)); % Starts at 0, goes down to -2m
 
 % --- Generate Yaw Setpoint [psi] ---

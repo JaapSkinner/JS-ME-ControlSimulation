@@ -31,7 +31,7 @@ UKF.InitialState(17) = INITIAL_GUESS.Izz;
 % Using the values from the last stable run. A large parameter variance
 % allows for an aggressive initial correction.
 P0_dyn_var   = 1e-6;
-P0_param_var = 0.1;
+P0_param_var = 0.01;
 P0_dynamics = P0_dyn_var * eye(n_dynamics);
 P0_params   = P0_param_var * eye(n_params);
 UKF.InitialCovariance = blkdiag(P0_dynamics, P0_params);
@@ -58,10 +58,10 @@ UKF.ProcessNoise = diag(Q_variances);
 
 % --- Noise Standard Deviations ---
 % These values usually come from the sensor datasheet or characterization.
-accel_noise_std = 0.05;    % [m/s^2]
-gyro_noise_std  = 0.01;    % [rad/s]
-mocap_pos_noise_std = 0.0005; % [m] - Motion capture is typically very precise.
-mocap_quat_noise_std = 0.0001;% [unitless] - Quaternion noise.
+accel_noise_std = 0.2;  % [m/s^2]
+gyro_noise_std  = 0.1;    % [rad/s]
+mocap_pos_noise_std = 0.001; % [m] - Motion capture is typically very precise.
+mocap_quat_noise_std = 0.001;% [unitless] - Quaternion noise.
 
 % --- Calculate Variances (std^2) ---
 accel_var      = accel_noise_std^2;
