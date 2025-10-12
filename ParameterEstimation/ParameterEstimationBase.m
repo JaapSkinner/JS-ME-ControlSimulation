@@ -62,7 +62,7 @@ UseEstimators(modelName, true);
 UsePositionController(modelName, true);
 
 %% Initialize simulation
-tEnd = 60;
+tEnd = 20;
 
 set_param(modelName, 'LoadInitialState', 'off');
 set_param(modelName, 'LoadExternalInput', 'off');

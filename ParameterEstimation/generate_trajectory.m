@@ -7,7 +7,7 @@
 disp('Generating exciting trajectory...');
 
 % --- Trajectory Parameters ---
-simulation_time = 60; % [s] Total duration of the trajectory
+simulation_time = 20; % [s] Total duration of the trajectory
 dt = 0.01;            % [s] Sample time, should match Simulink's solver
 
 % Amplitudes of motion

@@ -25,7 +25,8 @@ Z.n = rotorSpeeds.Data;
 % Structure input set U (control + inertial)
 U = struct();
 U.t = timevec.Data;
-U.uM = pwm.Data;                   % motor commands
+pwm_squeezed = squeeze(pwm.Data);
+U.uM = pwm_squeezed';                   % motor commands
 U.uI = [nuBodyMeasured.Data, VBodyDot.Data];           % IMU readings: [ω a]
 
 %% Set initial guesses for state trajectory and parameters
@@ -44,18 +45,39 @@ end
 
 % Initial parameter guesses
 thetaBar = createEmptyParams();
-thetaBar.cT = 1e-6;                % guess: thrust coefficient
-thetaBar.cM = 1e-7;                % guess: moment coefficient
-thetaBar.cd = 0.1;                 % guess: drag coefficient
+cT_guess = 1e-6; % An initial guess for the thrust magnitude
+cM_guess = 1e-7; % An initial guess for the moment magnitude (z-axis)
+
 thetaBar.J = [5e-3; 5e-3; 1e-2];   % guess: diagonal inertia
 thetaBar.rBC = [0; 0; 0];          % IMU at CoG initially
+
+for i = 1:numMotors
+    % Guess: All thrust is purely along the rotor's +z axis
+    thetaBar.gamma_T(:, i) = [0; 0; cT_guess];
+    
+    % Guess: All moment is purely around the rotor's +z axis
+    % Note: The sign (+/-) depends on rotor spin direction.
+    % You might need to make some negative.
+    thetaBar.gamma_M(:, i) = [0; 0; cM_guess];
+end
+% Example: If odd motors are CCW (+) and even are CW (-)
+% for i = 1:numMotors
+%     if mod(i, 2) == 0 % Even motor (e.g., CW)
+%         thetaBar.gamma_M(3, i) = -cM_guess;
+%     else % Odd motor (e.g., CCW)
+%         thetaBar.gamma_M(3, i) = cM_guess;
+%     end
+% end
 
 %% Measuement Covariances
 R_pos = 1e-4 * eye(3);   % Position noise: small variance
 R_quat = 1e-4 * eye(3);  % Quaternion (rotation vector) noise
 nx = length(getStateVector(Xbar(1)));  % state vector dimension
-Qm = 1e-3 * eye(nx);   % MAV dynamics process noise
+nx_minimal = 20; % The update vector size (3+3+3+3+8) since we use dtheta not quaterion (transformed later)
+num_mav_residuals = 3 + 3 + 3 + 3 + numMotors;
+Qm = 1e-3 * eye(num_mav_residuals);   % MAV dynamics process noise
 Qi = 1e-3 * eye(nx);   % IMU dynamics process noise
+
 
 %% Run MLE until convergance
 max_iters = 10;
@@ -85,6 +107,9 @@ for iter = 1:max_iters
     % 4. Update parameters
     d_theta = delta(param_idx);
     thetaBar = setParamVector(getParamVector(thetaBar) + d_theta);
+
+    % Sanitize the parameters to ensure they are physically valid.
+    thetaBar = sanitizeParameters(thetaBar);
     
     % 5. Check convergence
     cost = norm(residuals);
@@ -103,48 +128,66 @@ disp(thetaBar);
 
 % --- Rotor Geometry Definition ---
 function defineRotorGeometry()
-    % This function defines the physical layout of the UAV's rotors.
-    % --- YOU MUST MODIFY THESE VALUES FOR YOUR SPECIFIC UAV ---
     global rotors;
+
+    % --- X8 Octorotor Configuration Example ---
+    % YOU MUST MODIFY THESE VALUES FOR YOUR SPECIFIC UAV
+
+    % Distance from center to a motor arm
+    d = 0.35; % example: 350mm from center
     
-    % Example for a 250mm quadcopter in 'X' configuration
-    d = 0.25 / sqrt(2); % distance from center to a motor
+    % Vertical distance between top and bottom motors
+    h = 0.05; % example: 5cm separation
     
-    rotors(1).r = [ d;  d; 0]; % Position of Rotor 1 (Front-Right)
-    rotors(2).r = [ d; -d; 0]; % Position of Rotor 2 (Back-Right)
-    rotors(3).r = [-d; -d; 0]; % Position of Rotor 3 (Back-Left)
-    rotors(4).r = [-d;  d; 0]; % Position of Rotor 4 (Front-Left)
+    pos = d / sqrt(2);
+
+    % Position vectors [x; y; z] from CoG to each rotor hub
+    % Top Rotors (e.g., z is negative if CoG is frame origin and top is -z)
+    rotors(1).r = [ pos;  pos; -h/2]; % Top-Front-Right
+    rotors(2).r = [ pos; -pos; -h/2]; % Top-Back-Right
+    rotors(3).r = [-pos; -pos; -h/2]; % Top-Back-Left
+    rotors(4).r = [-pos;  pos; -h/2]; % Top-Front-Left
     
-    % All rotors are assumed to be parallel to the body XY plane (no tilt)
-    for i = 1:4
-        rotors(i).R = eye(3);
+    % Bottom Rotors
+    rotors(5).r = [ pos;  pos; h/2]; % Bottom-Front-Right
+    rotors(6).r = [ pos; -pos; h/2]; % Bottom-Back-Right
+    rotors(7).r = [-pos; -pos; h/2]; % Bottom-Back-Left
+    rotors(8).r = [-pos;  pos; h/2]; % Bottom-Front-Left
+
+    % Thrust direction (assuming no tilt, all thrust along body z-axis)
+    % For fixed-tilt, you would modify the rotation matrix R accordingly.
+    for i = 1:8
+        rotors(i).R = eye(3); 
     end
 end
+
 
 % --- State and Parameter Struct Definitions ---
 function x = createEmptyState(numMotors)
     x = struct();
-    x.p = zeros(3,1);              % position in world frame
-    x.v = zeros(3,1);              % velocity in body frame
-    x.q = [1; 0; 0; 0];            % orientation quaternion (wxyz)
-    x.omega = zeros(3,1);          % angular velocity in body frame
-    x.bw = zeros(3,1);             % gyro bias
-    x.ba = zeros(3,1);             % accel bias
-    x.n = zeros(numMotors,1);      % rotor speeds
+    x.p = zeros(3,1);       % position
+    x.v = zeros(3,1);       % velocity
+    x.q = [1; 0; 0; 0];     % quaternion
+    x.omega = zeros(3,1);   % angular velocity
+    x.n = zeros(numMotors,1); % rotor speeds
 end
 
+
 function theta = createEmptyParams()
+    numMotors = 8;
     theta = struct();
-    theta.cT = 0;                 % thrust coefficient
-    theta.cM = 0;                 % moment coefficient
-    theta.cd = 0;                 % drag coefficient
-    theta.J = zeros(3,1);         % diagonal inertia [Jx Jy Jz]
-    theta.rBC = zeros(3,1);       % IMU offset from CoG
+    theta.J = zeros(3,1);
+    theta.rBC = zeros(3,1);
+    theta.gamma_T = zeros(3, numMotors);
+    theta.gamma_M = zeros(3, numMotors);
+    % ADDED: IMU bias parameters
+    theta.bw = zeros(3,1);
+    theta.ba = zeros(3,1);
 end
 
 % --- State and Parameter Vector/Struct Conversion ---
 function x_vec = getStateVector(x)
-    x_vec = [x.p; x.v; x.q; x.omega; x.bw; x.ba; x.n];
+    x_vec = [x.p; x.v; x.q; x.omega; x.n];
 end
 
 function x = setStateVector(x_template, x_vec)
@@ -154,22 +197,33 @@ function x = setStateVector(x_template, x_vec)
     x.v = x_vec(idx:idx+2); idx = idx+3;
     x.q = x_vec(idx:idx+3); idx = idx+4;
     x.omega = x_vec(idx:idx+2); idx = idx+3;
-    x.bw = x_vec(idx:idx+2); idx = idx+3;
-    x.ba = x_vec(idx:idx+2); idx = idx+3;
     x.n = x_vec(idx:end);
 end
 
 function theta_vec = getParamVector(theta)
-    theta_vec = [theta.cT; theta.cM; theta.cd; theta.J; theta.rBC];
+    % Flatten vector 
+    theta_vec = [theta.J;
+                 theta.rBC;
+                 theta.gamma_T(:);
+                 theta.gamma_M(:);
+                 theta.bw; % ADDED
+                 theta.ba]; % ADDED
 end
 
 function theta = setParamVector(theta_vec)
-    theta = createEmptyParams(); % Ensures all fields are present
-    theta.cT = theta_vec(1);
-    theta.cM = theta_vec(2);
-    theta.cd = theta_vec(3);
-    theta.J = theta_vec(4:6);
-    theta.rBC = theta_vec(7:9);
+    numMotors = 8;
+    theta = createEmptyParams();
+
+    idx = 1;
+    theta.J = theta_vec(idx:idx+2); idx = idx+3;
+    theta.rBC = theta_vec(idx:idx+2); idx = idx+3;
+    len_gamma = 3 * numMotors;
+    theta.gamma_T = reshape(theta_vec(idx:idx+len_gamma-1), 3, numMotors);
+    idx = idx + len_gamma;
+    theta.gamma_M = reshape(theta_vec(idx:idx+len_gamma-1), 3, numMotors);
+    idx = idx + len_gamma;
+    theta.bw = theta_vec(idx:idx+2); idx = idx+3; % ADDED
+    theta.ba = theta_vec(idx:idx+2); idx = idx+3; % ADDED
 end
 
 % --- State Update Functions ---
@@ -177,16 +231,13 @@ function x_new = applyStateDelta(x, dx)
     x_new = x;
     x_new.p = x.p + dx(1:3);
     x_new.v = x.v + dx(4:6);
-    
     dtheta = dx(7:9);
-    dq = [1; 0.5*dtheta]; 
+    dq = [1; 0.5*dtheta];
     x_new.q = quatnormalize(quatmultiply(x.q', dq'))';
-    
     x_new.omega = x.omega + dx(10:12);
-    x_new.bw = x.bw + dx(13:15);
-    x_new.ba = x.ba + dx(16:18);
-    x_new.n = x.n + dx(19:end);
+    x_new.n = x.n + dx(13:end);
 end
+
 
 % ** NEWLY IMPLEMENTED FUNCTION **
 function x_out = addState(x_in, dx_struct)
@@ -198,8 +249,6 @@ function x_out = addState(x_in, dx_struct)
     x_out.q = x_in.q + dx_struct.q;
     x_out.q = x_out.q / norm(x_out.q); % Normalize
     x_out.omega = x_in.omega + dx_struct.omega;
-    x_out.bw = x_in.bw + dx_struct.bw;
-    x_out.ba = x_in.ba + dx_struct.ba;
     x_out.n = x_in.n + dx_struct.n;
 end
 
@@ -223,10 +272,8 @@ function dchi = stateResidual(xk, xk_pred)
     dv = xk.v - xk_pred.v;
     dq = quatError(xk_pred.q, xk.q);
     domega = xk.omega - xk_pred.omega;
-    dbw = xk.bw - xk_pred.bw;
-    dba = xk.ba - xk_pred.ba;
     dn = xk.n - xk_pred.n;
-    dchi = [dp; dv; dq; domega; dbw; dba; dn];
+    dchi = [dp; dv; dq; domega; dn];
 end
 
 % --- Dynamics and Integration ---
@@ -238,62 +285,62 @@ function dx = mavDynamics(x, uM, theta)
     
     C_IB = quat2rotm(x.q');
     
+    % Angular acceleration (calculated earlier to be used in dv)
+    [F_tot, M_tot] = rotorForcesAndMoments(uM, x.n, x, theta);
+    domega = J \ (M_tot - cross(x.omega, J * x.omega)); % Euler's equation
+    
     % Position derivative
     dp = C_IB * x.v;
     
-    % Velocity derivative
-    [F_tot, M_tot] = rotorForcesAndMoments(uM, x.n, x, theta);
+    % Velocity derivative -- CORRECTED
     g_W = [0; 0; -9.81]; % Gravity in world frame
-    dv = (1/m) * F_tot + C_IB' * g_W - cross(x.omega, x.v);
-    % Note: Simplified model, assumes IMU at CoG (rBC=0), so omega_dot term is omitted
+    
+    % The following line is the complete equation for linear acceleration
+    % of the CoG, accounting for the IMU offset rBC.
+    dv = (1/m) * F_tot + C_IB' * g_W - cross(x.omega, x.v) ...
+         - cross(domega, rBC) - cross(x.omega, cross(x.omega, rBC));
     
     % Quaternion derivative
     Omega = [0 -x.omega'; x.omega -skew(x.omega)];
     dq = 0.5 * Omega * x.q;
     
-    % Angular acceleration
-    domega = J \ (M_tot - cross(x.omega, J * x.omega));
-    
-    % Rotor speed dynamics
-    tau = 0.02; % motor time constant (guess)
+    % Rotor speed dynamics (remains the same)
+    tau = 0.02; 
     dn = (1/tau) * (uM(:) - x.n);
     
-    % Assemble derivative struct
-    dx = createEmptyState(length(uM));
+    % ... (assemble derivative struct dx)
     dx.p = dp;
     dx.v = dv;
     dx.q = dq;
-    dx.omega = domega;
+    dx.omega = domega; % Already calculated
     dx.n = dn;
 end
 
 function [F_tot, M_tot] = rotorForcesAndMoments(uM, n, x, theta)
     global rotors;
-    cT = theta.cT;
-    cM = theta.cM;
-    cd = theta.cd;
+    % REMOVED: cT, cM, cd
     rBC = theta.rBC; % CoG to IMU offset
     
     F_tot = zeros(3,1);
     M_tot = zeros(3,1);
     
-    for i = 1:length(n)
+    numMotors = length(n);
+    for i = 1:numMotors
         ni = n(i);
-        Ti = cT * ni^2;
-        Mi_A = cM * ni^2 * [0; 0; 1]; % Moment in rotor's own frame (Ai)
         
-        rBAi = rotors(i).r; % Body to Rotor_i position
-        C_BAi = rotors(i).R; % Body to Rotor_i orientation
+        % --- NEW MODEL ---
+        % Fetch the effectiveness vectors for this specific motor
+        gamma_T_i = theta.gamma_T(:, i);
+        gamma_M_i = theta.gamma_M(:, i);
         
-        v_hub_B = x.v + cross(x.omega, rBAi);
-        v_hub_Ai = C_BAi' * v_hub_B;
-        
-        % Drag force in rotor frame
-        D = diag([cd, cd, 0]);
-        F_drag_Ai = -Ti * D * v_hub_Ai;
-        
-        % Total force from this rotor in rotor frame
-        F_Ai = [0; 0; Ti] + F_drag_Ai;
+        % Calculate force and moment directly in the rotor's own frame (Ai)
+        % This elegantly combines magnitude and direction.
+        F_Ai = gamma_T_i * ni^2;
+        Mi_A = gamma_M_i * ni^2;
+        % --- END NEW MODEL ---
+
+        rBAi = rotors(i).r;  % Body to Rotor_i position
+        C_BAi = rotors(i).R; % Body to Rotor_i orientation (usually eye(3))
         
         % Transform forces and moments to body frame
         F_B = C_BAi * F_Ai;
@@ -320,28 +367,30 @@ function x_next = integrateMAV(xk, ukM, dt, theta)
     x_next = addState(xk, scaleState(dx_final, dt));
 end
 
-function dx = imuDynamics(x, uI)
+function dx = imuDynamics(x, uI, theta)
     gyro = uI(1:3);
     accel = uI(4:6);
-    
-    omega_corr = gyro - x.bw;
-    accel_corr = accel - x.ba;
-    
-    g_W = [0; 0; -9.81];
+
+    % Get biases from the theta parameter struct
+    omega_corr = gyro - theta.bw;
+    accel_corr = accel - theta.ba;
+
+    g_W = [0; 0; 9.81]; % Assuming NED
     C_IB = quat2rotm(x.q');
-    
-    dv = C_IB * accel_corr + g_W - cross(omega_corr, x.v);
-    
+
+    dv = accel_corr + C_IB' * g_W - cross(omega_corr, x.v);
+
     Omega = [0 -omega_corr'; omega_corr -skew(omega_corr)];
     dq = 0.5 * Omega * x.q;
-    
+
     dx = createEmptyState(length(x.n));
     dx.v = dv;
     dx.q = dq;
 end
 
-function x_next = integrateIMU(xk, uIk, dt)
-    f = @(x) imuDynamics(x, uIk);
+
+function x_next = integrateIMU(xk, uIk, dt, theta)
+    f = @(x) imuDynamics(x, uIk, theta);
     k1 = f(xk);
     k2 = f(addState(xk, scaleState(k1, dt/2)));
     k3 = f(addState(xk, scaleState(k2, dt/2)));
@@ -362,8 +411,6 @@ function dx_scaled = scaleState(dx, factor)
     dx_scaled.v = dx.v * factor;
     dx_scaled.q = dx.q * factor;
     dx_scaled.omega = dx.omega * factor;
-    dx_scaled.bw = dx.bw * factor;
-    dx_scaled.ba = dx.ba * factor;
     dx_scaled.n = dx.n * factor;
 end
 
@@ -381,10 +428,18 @@ function J = finiteDifference(f, x0, dx)
     end
 end
 
+% --- NEW RESIDUAL FUNCTION ---
+function dchi_imu = imuStateResidual(xk, xk_pred)
+    % This residual only compares the states predicted by the IMU model
+    dv = xk.v - xk_pred.v;
+    dq = quatError(xk_pred.q, xk.q);
+    dchi_imu = [dv; dq];
+end
+
 % --- Batch System Assembly ---
 function [residuals, A, state_idx, param_idx] = buildBatchSystem(Xbar, thetaBar, Z, U, dt_seq, R_pos, R_quat, Qm, Qi)
     K = length(Xbar);
-    nx = length(getStateVector(Xbar(1)));
+    nx = length(getStateVector(Xbar(1)))-1; %-1 because using dtheta instead of quaternion. transforms later
     np = length(getParamVector(thetaBar));
     
     % Preallocate for speed
@@ -398,6 +453,8 @@ function [residuals, A, state_idx, param_idx] = buildBatchSystem(Xbar, thetaBar,
     
     current_row = 1;
     
+    Qi_imu = 1e-3 * eye(6);
+
     for k = 2:K
         dt = dt_seq(k-1);
     
@@ -409,9 +466,14 @@ function [residuals, A, state_idx, param_idx] = buildBatchSystem(Xbar, thetaBar,
         L_meas = chol(inv(R_meas), 'lower');
         res_meas_norm = L_meas * res_meas;
     
-        f_meas = @(x_vec) measurementResidual(setStateVector(Xbar(k), x_vec), Zk, R_pos, R_quat);
-        H_meas_dx = finiteDifference(f_meas, getStateVector(Xbar(k)), 1e-7);
+        % Create a function that takes a minimal (20-element) dx as input
+        f_meas_minimal = @(dx) measurementResidual(applyStateDelta(Xbar(k), dx), Zk, R_pos, R_quat);
+        
+        % Differentiate with respect to a zero dx vector of the correct size
+        dx0 = zeros(nx, 1); % nx is already correctly set to 20
+        H_meas_dx = finiteDifference(f_meas_minimal, dx0, 1e-7);
         H_meas = L_meas * H_meas_dx;
+
     
         % --- MAV Model Residual ---
         x_pred_mav = integrateMAV(Xbar(k-1), U.uM(k-1, :)', dt, thetaBar);
@@ -419,26 +481,42 @@ function [residuals, A, state_idx, param_idx] = buildBatchSystem(Xbar, thetaBar,
         L_mav = chol(inv(Qm), 'lower');
         res_dyn_mav_norm = L_mav * res_dyn_mav;
     
-        f_mav_xkm1 = @(x_vec) stateResidual(Xbar(k), integrateMAV(setStateVector(Xbar(k-1), x_vec), U.uM(k-1,:)', dt, thetaBar));
-        H_dynM_xkm1 = L_mav * finiteDifference(f_mav_xkm1, getStateVector(Xbar(k-1)), 1e-7);
+        f_mav_xkm1_minimal = @(dx) stateResidual(Xbar(k), integrateMAV(applyStateDelta(Xbar(k-1), dx), U.uM(k-1,:)', dt, thetaBar));
+        dx0 = zeros(nx, 1); % nx is already correctly set to 20
+        H_dynM_xkm1 = L_mav * finiteDifference(f_mav_xkm1_minimal, dx0, 1e-7);
+
         
-        f_mav_xk = @(x_vec) stateResidual(setStateVector(Xbar(k), x_vec), x_pred_mav);
-        H_dynM_xk = L_mav * finiteDifference(f_mav_xk, getStateVector(Xbar(k)), 1e-7);
+        f_mav_xk_minimal = @(dx) stateResidual(applyStateDelta(Xbar(k), dx), x_pred_mav);
+        dx0 = zeros(nx, 1);
+        H_dynM_xk = L_mav * finiteDifference(f_mav_xk_minimal, dx0, 1e-7);
     
         f_mav_theta = @(theta_vec) stateResidual(Xbar(k), integrateMAV(Xbar(k-1), U.uM(k-1,:)', dt, setParamVector(theta_vec)));
         H_dynM_theta = L_mav * finiteDifference(f_mav_theta, getParamVector(thetaBar), 1e-7);
     
         % --- IMU Model Residual ---
-        x_pred_imu = integrateIMU(Xbar(k-1), U.uI(k-1, :)', dt);
-        res_dyn_imu = stateResidual(Xbar(k), x_pred_imu);
-        L_imu = chol(inv(Qi), 'lower');
+        x_pred_imu = integrateIMU(Xbar(k-1), U.uI(k-1, :)', dt, thetaBar);
+        
+        res_dyn_imu = imuStateResidual(Xbar(k), x_pred_imu); % Use new function
+        L_imu = chol(inv(Qi_imu), 'lower'); % Use new 6x6 covariance
         res_dyn_imu_norm = L_imu * res_dyn_imu;
     
-        f_imu_xkm1 = @(x_vec) stateResidual(Xbar(k), integrateIMU(setStateVector(Xbar(k-1), x_vec), U.uI(k-1,:)', dt));
-        H_dynI_xkm1 = L_imu * finiteDifference(f_imu_xkm1, getStateVector(Xbar(k-1)), 1e-7);
+        % We need a function handle that outputs the 6x1 imu residual.      
+        % Jacobian w.r.t x_{k-1} 
+        f_imu_xkm1_minimal = @(dx) imuStateResidual(Xbar(k), integrateIMU(applyStateDelta(Xbar(k-1), dx), U.uI(k-1,:)', dt, thetaBar));
+        dx0 = zeros(nx, 1);
+        H_dynI_xkm1 = L_imu * finiteDifference(f_imu_xkm1_minimal, dx0, 1e-7);
+
         
-        f_imu_xk = @(x_vec) stateResidual(setStateVector(Xbar(k), x_vec), x_pred_imu);
-        H_dynI_xk = L_imu * finiteDifference(f_imu_xk, getStateVector(Xbar(k)), 1e-7);
+        % Jacobian w.r.t x_k
+        % Here the prediction x_pred_imu is constant w.r.t x_k
+        f_imu_xk_minimal = @(dx) imuStateResidual(applyStateDelta(Xbar(k), dx), x_pred_imu);
+        dx0 = zeros(nx, 1);
+        H_dynI_xk = L_imu * finiteDifference(f_imu_xk_minimal, dx0, 1e-7);
+
+        % --- ADDED: Jacobian w.r.t. theta ---
+        f_imu_theta_handle = @(theta_vec) imuStateResidual(Xbar(k), integrateIMU(Xbar(k-1), U.uI(k-1,:)', dt, setParamVector(theta_vec)));
+        H_dynI_theta = L_imu * finiteDifference(f_imu_theta_handle, getParamVector(thetaBar), 1e-7);
+
     
         % --- Stack Residuals and Jacobians for this time step ---
         idx_km1 = (k-2)*nx + (1:nx);
@@ -459,6 +537,9 @@ function [residuals, A, state_idx, param_idx] = buildBatchSystem(Xbar, thetaBar,
         A(rows, idx_km1) = H_dynM_xkm1;
         A(rows, idx_k) = H_dynM_xk;
         A(rows, idx_theta) = H_dynM_theta;
+
+        rows = current_row : current_row + size(res_dyn_imu_norm, 1) - 1;
+        A(rows, idx_theta) = H_dynI_theta; % ADDED THIS PART
         current_row = rows(end) + 1;
         
         % Add IMU dynamics residual and Jacobians
@@ -478,4 +559,14 @@ function S = skew(v)
     S = [  0  -v(3)  v(2);
           v(3)   0  -v(1);
          -v(2)  v(1)   0  ];
+end
+
+% --- NEW HELPER FUNCTION ---
+function theta = sanitizeParameters(theta)
+    % This function enforces physical constraints on the parameters.
+
+    % Inertia values must be positive.
+    % We enforce a small minimum value to prevent division by zero.
+    min_inertia = 1e-6;
+    theta.J(theta.J < min_inertia) = min_inertia;
 end
