@@ -11,14 +11,14 @@ simulation_time = 20; % [s] Total duration of the trajectory
 dt = 0.01;            % [s] Sample time, should match Simulink's solver
 
 % Amplitudes of motion
-amp_x = 2.0; % [m]
-amp_y = 2.0; % [m]
-amp_z = 1.0; % [m]
+amp_x = 0.0; % [m]
+amp_y = 0.0; % [m]
+amp_z = 0.01; % [m]
 
 % Frequencies of motion (using different frequencies creates complex paths)
 freq_x = 0.025; % [Hz]
 freq_y = 0.05; % [Hz]
-freq_z = 0.1; % [Hz]
+freq_z = 1.0; % [Hz]
 
 % Yaw motion parameters
 yaw_rate_max = pi/4; % [rad/s]
