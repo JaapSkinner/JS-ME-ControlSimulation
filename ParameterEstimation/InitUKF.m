@@ -2,15 +2,13 @@ clear UKF;
 disp('Setting up UKF for 6-DOF Motor Effectiveness Estimation (Lumped-Parameter Model)...');
 
 %% 1. State Vector Definition
-n_dynamics = 13;
+n_dynamics = 13 + Uav.N_ROTORS; % add N_ROTORS to the state to hold OMEGA
 N_MOTORS = Uav.N_ROTORS;
 
-% >>>>>>>>>>>> THIS IS THE CRITICAL CHANGE #1 <<<<<<<<<<<<<<<
-% The parameter state now ONLY contains the 6xN effectiveness matrix elements.
-% Mass and Inertia have been removed from the state.
-n_params = 6 * N_MOTORS; % 3 for force (Fx,Fy,Fz), 3 for torque (Tx,Ty,Tz) per motor
-
-n_total = n_dynamics + n_params; % Will be 61 for an 8-rotor UAV
+n_params_eff = 6 * N_MOTORS; % 3 for force (Fx,Fy,Fz), 3 for torque (Tx,Ty,Tz) per motor
+n_params_motors = 3 * N_MOTORS; % Gain_u, Coeff_omega, Coeff_omega_sq per motor
+n_params = n_params_eff + n_params_motors;
+n_total = n_dynamics + n_params; % Will be 93 for an 8-rotor UAV
 
 %% 2. Initial Guesses for Parameters
 % Our initial guess for the effectiveness matrix is the B-matrix derived
@@ -32,18 +30,33 @@ end
 % We flatten the nominal B-matrix into a vector for the state.
 INITIAL_GUESS.effectiveness = reshape(B_matrix_nominal, [], 1);
 
+% Calculate nominal values for the lumped parameters for a good initial guess.
+Kt_nom   = Motor.K_T(1); Ke_nom   = Motor.K_E(1); R_nom    = Motor.R(1);
+Ctau_nom = Motor.C_TAU(1); mv_nom   = Motor.volt_slope(1); Irzz_nom = Motor.I_R_ZZ(1);
+
+Gain_u_nom = (Kt_nom * mv_nom) / (Irzz_nom * R_nom);
+Coeff_omega_nom = (Kt_nom * Ke_nom) / (Irzz_nom * R_nom);
+Coeff_omega_sq_nom = Ctau_nom / Irzz_nom;
+
+INITIAL_GUESS.motor_gain_u = repmat(Gain_u_nom, N_MOTORS, 1);
+INITIAL_GUESS.motor_coeff_w = repmat(Coeff_omega_nom, N_MOTORS, 1);
+INITIAL_GUESS.motor_coeff_w2 = repmat(Coeff_omega_sq_nom, N_MOTORS, 1);
+
 %% 3. UKF Block Parameters
 % --- Initial State (x0) ---
 UKF.InitialState = zeros(n_total, 1);
 UKF.InitialState(7) = 1; % Set quaternion w-component
 
-% >>>>>>>>>>>> THIS IS THE CRITICAL CHANGE #2 <<<<<<<<<<<<<<<
 % The parameter states now start at the nominal effectiveness values.
-UKF.InitialState(14:end) = INITIAL_GUESS.effectiveness;
+jk = n_dynamics +1;
+UKF.InitialState(jk: 13+7*N_MOTORS) = INITIAL_GUESS.effectiveness;
+UKF.InitialState(jk+6*N_MOTORS:13+8*N_MOTORS) = INITIAL_GUESS.motor_gain_u;
+UKF.InitialState(jk+7*N_MOTORS:13+9*N_MOTORS) = INITIAL_GUESS.motor_coeff_w;
+UKF.InitialState(jk+8*N_MOTORS:13+10*N_MOTORS) = INITIAL_GUESS.motor_coeff_w2;
 
 % --- Initial Covariance (P0) ---
 P0_dyn_var   = 1e-6;
-P0_param_var_eff  = 0.0005;
+P0_param_var_eff  = 1e-20;
 
 P0_dynamics = P0_dyn_var * eye(n_dynamics);
 P0_params_vec = repmat(P0_param_var_eff, n_params, 1);
@@ -54,7 +67,8 @@ Q_pos_var    = 1e-7;
 Q_vel_var    = 1e-2;
 Q_quat_var   = 1e-8;
 Q_angvel_var = 1e-2;
-Q_param_var_eff  = 1e-5;
+Q_omega_var  = 1e-3;
+Q_param_var_eff  = 1e-20;
 
 % >>>>>>>>>>>> THIS IS THE CRITICAL CHANGE #3 <<<<<<<<<<<<<<<
 % Q matrix is now smaller as it only contains effectiveness params.
@@ -62,6 +76,7 @@ Q_variances = [ repmat(Q_pos_var, 3, 1);
                 repmat(Q_vel_var, 3, 1);
                 repmat(Q_quat_var, 4, 1);
                 repmat(Q_angvel_var, 3, 1);
+                repmat(Q_omega_var, N_MOTORS,1);
                 repmat(Q_param_var_eff, n_params, 1) ];
 UKF.ProcessNoise = diag(Q_variances);
 
@@ -73,17 +88,20 @@ accel_noise_std = 0.2;
 gyro_noise_std  = 0.1;
 mocap_pos_noise_std = 0.001;
 mocap_quat_noise_std = 0.001;
+DSHOT_omega_noise_std = 0.001;
 
 accel_var      = accel_noise_std^2;
 gyro_var       = gyro_noise_std^2;
 mocap_pos_var  = mocap_pos_noise_std^2;
 mocap_quat_var = mocap_quat_noise_std^2;
+DSHOT_omega_noise_var = DSHOT_omega_noise_std^2;
 
 R_variances = [ ...
     repmat(accel_var, 3, 1);
     repmat(gyro_var, 3, 1);
     repmat(mocap_pos_var, 3, 1);
-    repmat(mocap_quat_var, 4, 1)
+    repmat(mocap_quat_var, 4, 1);
+    repmat(DSHOT_omega_noise_var, N_MOTORS,1);
 ];
 UKF.MeasurementNoise = diag(R_variances);
 
