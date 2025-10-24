@@ -13,6 +13,11 @@ motion_duration = 60; % [s] Duration of the actual Lissajous motion
 padding_duration = 2;   % [s] Duration of zero-padding at the start
 dt = 0.01;              % [s] Sample time, should match Simulink's solver
 enable_plotting = true; % FLAG: Set to true to show plots, false to hide
+enable_saving = true;   % FLAG: Set to true to save the .mat file
+enable_plot_saving = true; % FLAG: Set to true to save plots as images
+save_folder = 'ParameterEstimation/figures'; % Folder to save the .mat file
+save_filename = '6dof_trajectory.mat'; % File name for the .mat file
+plot_save_folder = 'ParameterEstimation/figures'; % Folder to save the plot images
 
 % --- Generate the Time Vectors ---
 total_duration = padding_duration + motion_duration;
@@ -38,9 +43,9 @@ t_motion = (0:dt:motion_duration)'; % Time vector for the motion part
 
 % --- Positional Trajectory Parameters (x, y, z) ---
 % Amplitudes [m]
-pos_amp_x = 0.5;
-pos_amp_y = 0.5;
-pos_amp_z = 0.25;
+pos_amp_x = 0.05;
+pos_amp_y = 0.05;
+pos_amp_z = 0.025;
 
 % Frequencies [Hz] - Ratios are important for Lissajous shapes
 pos_freq_x = 0.1;
@@ -54,14 +59,14 @@ pos_phase_z = pi/4;
 
 % --- Rotational Trajectory Parameters (roll, pitch, yaw) ---
 % Amplitudes [rad] - Keep roll and pitch angles modest to be realistic
-rot_amp_roll  = pi/48; % +/- 4 degrees
-rot_amp_pitch = pi/48; % +/- 4 degrees
-rot_amp_yaw   = pi/12;  % +/-  degrees
+rot_amp_roll  = pi/64; % +/- 2 degrees
+rot_amp_pitch = pi/64; % +/- 2 degrees
+rot_amp_yaw   = pi/64;  % +/- 2 degrees
 
 % Frequencies [Hz] - Generally higher than position frequencies
-rot_freq_roll  = 0.25;
-rot_freq_pitch = 0.3;
-rot_freq_yaw   = 0.4;
+rot_freq_roll  = 0.1;
+rot_freq_pitch = 0.15;
+rot_freq_yaw   = 0.2;
 
 % Phase Offsets [rad]
 rot_phase_roll  = 0;
@@ -131,41 +136,137 @@ trajectory_timeseries.Name = '6DOF_Lissajous_Trajectory';
 trajectory_timeseries.DataInfo.Units = 'm_and_rad';
 
 
+% --- Save Trajectory to File ---
+if enable_saving
+    if ~exist(save_folder, 'dir') % Check if folder exists
+        mkdir(save_folder);       % Create folder if it doesn't
+        disp(['Folder "' save_folder '" created.']);
+    end
+    save_path = fullfile(save_folder, save_filename);
+    save(save_path, 'trajectory_timeseries');
+    disp(['Trajectory saved to "' save_path '".']);
+end
+
+
 disp('6-DOF trajectory generated and loaded into "trajectory_timeseries".');
 disp('You can now use this variable in your Simulink model.');
 
 % --- Optional: Plotting ---
 if enable_plotting
-    figure('Name', '6-DOF Trajectory');
+    % Create plot save folder if it doesn't exist
+    if enable_plot_saving
+        if ~exist(plot_save_folder, 'dir') % Check if folder exists
+            mkdir(plot_save_folder);       % Create folder if it doesn't
+            disp(['Plot save folder "' plot_save_folder '" created.']);
+        end
+    end
 
-    % 3D Positional Trajectory
-    subplot(2,2,1);
-    plot3(trajectory_data(:,1), trajectory_data(:,2), trajectory_data(:,3), 'b');
-    title('3D Position Trajectory');
-    xlabel('X [m]');
-    ylabel('Y [m]');
-    zlabel('Z [m]');
+    % Set global font sizes for readability (optional, but good for thesis)
+    set(groot, 'defaultAxesFontSize', 12);   % For tick labels
+    set(groot, 'defaultLegendFontSize', 10); % For legend text
+    set(groot, 'defaultTextFontSize', 12);   % For axis labels
+
+    % Define a nicer color palette (RGB triplets)
+    color_blue   = [0, 0.4470, 0.7410];
+    color_orange = [0.8500, 0.3250, 0.0980];
+    color_green  = [0.4660, 0.6740, 0.1880];
+
+    % Figure 1: 3D Positional Trajectory
+    fig1 = figure('Name', '3D Position Trajectory');
+    plot3(trajectory_data(:,1), trajectory_data(:,2), trajectory_data(:,3), 'Color', color_blue, 'LineWidth', 1.5);
+    % title('3D Position Trajectory', 'FontSize', 14, 'FontWeight', 'bold'); % Title removed for thesis caption
+    xlabel('X Position [m]');
+    ylabel('Y Position [m]');
+    zlabel('Z Position [m]');
     grid on;
     axis equal;
+    box on; % Add a box for a cleaner look
 
-    % Position vs. Time
-    subplot(2,2,2);
-    plot(t, trajectory_data(:,1), 'r', t, trajectory_data(:,2), 'g', t, trajectory_data(:,3), 'b');
-    title('Position vs. Time');
+    % Save Figure 1
+    if enable_plot_saving
+        fig1_filename = fullfile(plot_save_folder, '3d_position_trajectory.png');
+        print(fig1, fig1_filename, '-dpng', '-r300'); % Save as 300 DPI PNG
+        disp(['Saved Figure 1 to "' fig1_filename '"']);
+    end
+
+    % Figure 2: Position States vs. Time
+    fig2 = figure('Name', 'Position States vs. Time');
+    hold on;
+    plot(t, trajectory_data(:,1), '-', 'Color', color_blue, 'LineWidth', 1.5);
+    plot(t, trajectory_data(:,2), '-', 'Color', color_orange, 'LineWidth', 1.5);
+    plot(t, trajectory_data(:,3), '-', 'Color', color_green, 'LineWidth', 1.5);
+    hold off;
+    % title('Position States vs. Time', 'FontSize', 14, 'FontWeight', 'bold'); % Title removed for thesis caption
     xlabel('Time [s]');
     ylabel('Position [m]');
-    legend('x', 'y', 'z');
+    legend('x-position', 'y-position', 'z-position', 'Location', 'best');
     grid on;
+    box on;
+    
+    % --- Add vertical margin and limit x-axis ---
+    % Find data range (excluding initial padding for min/max calculation)
+    motion_pos_data = trajectory_data(padding_samples+1:end, 1:3);
+    min_pos = min(motion_pos_data, [], 'all');
+    max_pos = max(motion_pos_data, [], 'all');
+    pos_range = max_pos - min_pos;
+    pos_margin = pos_range * 0.2 + 1e-6; % Increased margin to 20%
+    
+    ylim([min_pos - pos_margin, max_pos + pos_margin]);
+    xlim([0, 20]); % Limit x-axis to first 20 seconds
+    % ---
 
-    % Attitude vs. Time
-    subplot(2,2,3);
-    plot(t, trajectory_data(:,4), 'r', t, trajectory_data(:,5), 'g', t, trajectory_data(:,6), 'b');
-    title('Attitude vs. Time');
+    % Save Figure 2
+    if enable_plot_saving
+        fig2_filename = fullfile(plot_save_folder, 'position_states_vs_time.png');
+        print(fig2, fig2_filename, '-dpng', '-r300'); % Save as 300 DPI PNG
+        disp(['Saved Figure 2 to "' fig2_filename '"']);
+    end
+
+    % Figure 3: Attitude States vs. Time
+    fig3 = figure('Name', 'Attitude States vs. Time');
+    hold on;
+    plot(t, trajectory_data(:,4), '-', 'Color', color_blue, 'LineWidth', 1.5);
+    plot(t, trajectory_data(:,5), '-', 'Color', color_orange, 'LineWidth', 1.5);
+    plot(t, trajectory_data(:,6), '-', 'Color', color_green, 'LineWidth', 1.5);
+    hold off;
+    % title('Attitude States vs. Time', 'FontSize', 14, 'FontWeight', 'bold'); % Title removed for thesis caption
     xlabel('Time [s]');
     ylabel('Angle [rad]');
-    legend('Roll', 'Pitch', 'Yaw');
+    % Use TeX interpreter for Greek letters in the legend
+    legend('Roll (\phi)', 'Pitch (\theta)', 'Yaw (\psi)', 'Location', 'best', 'Interpreter', 'tex');
     grid on;
+    box on;
+
+    % --- Add vertical margin and limit x-axis ---
+    % Find data range (excluding initial padding for min/max calculation)
+    motion_att_data = trajectory_data(padding_samples+1:end, 4:6);
+    min_att = min(motion_att_data, [], 'all');
+    max_att = max(motion_att_data, [], 'all');
+    att_range = max_att - min_att;
+    att_margin = att_range * 0.2 + 1e-6; % Increased margin to 20%
+    
+    ylim([min_att - att_margin, max_att + att_margin]);
+    xlim([0, 20]); % Limit x-axis to first 20 seconds
+    % ---
+
+    % Save Figure 3
+    if enable_plot_saving
+        fig3_filename = fullfile(plot_save_folder, 'attitude_states_vs_time.png');
+        print(fig3, fig3_filename, '-dpng', '-r300'); % Save as 300 DPI PNG
+        disp(['Saved Figure 3 to "' fig3_filename '"']);
+    end
+
+    % Reset global font sizes if needed
+    % set(groot, 'defaultAxesFontSize', 'remove');
+    % ... (reset others if you wish)
 end
+
+
+
+
+
+
+
 
 
 

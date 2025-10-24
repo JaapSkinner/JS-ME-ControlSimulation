@@ -68,7 +68,7 @@ Q_vel_var    = 1e-2;
 Q_quat_var   = 1e-8;
 Q_angvel_var = 1e-2;
 Q_omega_var  = 1e-3;
-Q_param_var_eff  = 1e-20;
+Q_param_var_eff  = 1e-50;
 
 % >>>>>>>>>>>> THIS IS THE CRITICAL CHANGE #3 <<<<<<<<<<<<<<<
 % Q matrix is now smaller as it only contains effectiveness params.
