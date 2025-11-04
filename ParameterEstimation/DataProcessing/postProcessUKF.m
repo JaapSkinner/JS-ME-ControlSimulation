@@ -443,7 +443,7 @@ catch ME
 end
 
 
-% --- A.4. Variation Sensitivity (Fig 4a, 4b, 4c) ---
+%% --- A.4. Variation Sensitivity (Fig 4a, 4b, 4c) ---
 
 % Helper function to safely extract nested feature data
 % This new version handles array indexing like 'COM.per_axis_deviation(1)'
@@ -544,7 +544,7 @@ try
     colorbar;
     c = colorbar;
     c.Label.String = 'Total RMSE (Est)';
-    caxis([min(total_rmse_est), max(total_rmse_est)]);
+    clim([min(total_rmse_est), max(total_rmse_est)]);
     
     saveas(fig4b, fullfile(plotOutputPath, 'Fig4b_COM_Landscape.png'));
     
@@ -599,7 +599,7 @@ catch ME
 end
 
 
-% --- A.5. Cross-DOF Behavior (Fig 5) ---
+%% --- A.5. Cross-DOF Behavior (Fig 5) ---
 try
     fprintf('  Generating Figure 5 (Error Fingerprint)...\n');
     % Figure 5: "Error Fingerprint" Heatmap
