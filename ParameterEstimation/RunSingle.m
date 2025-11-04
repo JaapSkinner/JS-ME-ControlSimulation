@@ -36,7 +36,7 @@ addpath(submodulePath);
 %% Output tag
 testCase = 'estimation';
 tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
-outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation/Sims');
+outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation/UKFData');
 outputFile = sprintf('%s_%s_%s', testCase, uavType, tStr);
 
 %% Deactivate initial states
@@ -64,5 +64,4 @@ if ~isfolder(outputFolder)
     mkdir(outputFolder)
 end
 save(fullfile(outputFolder, outputFile), 'simIn', 'simOut', 'Uav', 'Motor');
-
 

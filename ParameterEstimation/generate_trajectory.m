@@ -12,9 +12,9 @@ disp('Generating 6-DOF exciting trajectory...');
 motion_duration = 60; % [s] Duration of the actual Lissajous motion
 padding_duration = 2;   % [s] Duration of zero-padding at the start
 dt = 0.01;              % [s] Sample time, should match Simulink's solver
-enable_plotting = true; % FLAG: Set to true to show plots, false to hide
-enable_saving = true;   % FLAG: Set to true to save the .mat file
-enable_plot_saving = true; % FLAG: Set to true to save plots as images
+enable_plotting = false; % FLAG: Set to true to show plots, false to hide
+enable_saving = false;   % FLAG: Set to true to save the .mat file
+enable_plot_saving = false; % FLAG: Set to true to save plots as images
 save_folder = 'ParameterEstimation/figures'; % Folder to save the .mat file
 save_filename = '6dof_trajectory.mat'; % File name for the .mat file
 plot_save_folder = 'ParameterEstimation/figures'; % Folder to save the plot images

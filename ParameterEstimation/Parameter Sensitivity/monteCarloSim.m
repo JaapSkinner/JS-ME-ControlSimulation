@@ -79,7 +79,7 @@ fprintf('Each sample will be tested against %d 6-DOF wrench setpoints.\n', nSetp
 % --- 2. Main Monte Carlo Loop ---
 for i = 1:N_samples
     [Motor_i, Uav_i, features_i] = sampleParameters(Motor_nom, Uav_nom, variationPercent, [], N_motors);
-    Uav_i.COM = [0,0,0];
+    % Uav_i.COM = [0,0,0];
 
     % --- Assemble the 'params' struct required by computeWrench ---
     params = struct();
