@@ -445,22 +445,8 @@ end
 
 %% --- A.4. Variation Sensitivity (Fig 4a, 4b, 4c) ---
 
-% Helper function to safely extract nested feature data
-% This new version handles array indexing like 'COM.per_axis_deviation(1)'
-get_feature = @(s, field_path) ...
-    eval(sprintf('s.%s', regexprep(field_path, '(\w+)', '$1')));
-
-% Helper function to build a table of normalized features
-% FIX: Corrected use of cell2mat (it's a function, not a method)
-build_normalized_feature_table = @(features_struct_array, feature_list) ...
-    zscore( ...
-        cell2mat( ...
-            arrayfun(@(s) ...
-                cellfun(@(f) eval(sprintf('s.%s', f)), feature_list), ...
-                features_struct_array, 'UniformOutput', false ...
-            ) ...
-        ) ...
-    );
+% NOTE: Removing problematic anonymous helper functions 'get_feature' and
+% 'build_normalized_feature_table'. Replacing with explicit loops.
 
 try
     fprintf('  Generating Figure 4a (Total Variation vs. RMSE)...\n');
@@ -479,11 +465,38 @@ try
         end
     end
     
-    % 2. Build the normalized feature table
-    % norm_feature_table is [numFiles x numFeatures], z-scored
-    norm_feature_table = build_normalized_feature_table(all_features, feature_paths_to_normalize);
+    % 2. Build the feature table (NOT normalized yet)
+    % [numFiles x numFeatures]
+    raw_feature_table = zeros(numFiles, length(feature_paths_to_normalize));
+    for i_file = 1:numFiles
+        s = all_features(i_file); % Get the struct for this run
+        for j_feat = 1:length(feature_paths_to_normalize)
+            f_path = feature_paths_to_normalize{j_feat};
+            
+            % Robustly access nested fields and array elements
+            parts = strsplit(f_path, '.');
+            val = s;
+            for k = 1:length(parts)
+                part = parts{k};
+                array_match = regexp(part, '(\w+)\((\d+)\)', 'tokens');
+                if ~isempty(array_match)
+                    % Handle array access like 'per_axis_deviation(1)'
+                    fieldName = array_match{1}{1};
+                    idx = str2double(array_match{1}{2});
+                    val = val.(fieldName)(idx);
+                else
+                    % Handle simple field access
+                    val = val.(part);
+                end
+            end
+            raw_feature_table(i_file, j_feat) = val;
+        end
+    end
     
-    % 3. "Total Variation" is the sum of these z-scores for each run
+    % 3. Normalize (z-score) the table
+    norm_feature_table = zscore(raw_feature_table);
+    
+    % 4. "Total Variation" is the sum of these z-scores for each run
     % We sum the absolute values, as we care about magnitude of deviation
     total_norm_var = sum(abs(norm_feature_table), 2);
     
@@ -523,8 +536,11 @@ try
     
     % FIX: Removed '.features' - all_features is the struct array
     com_x_dev = arrayfun(@(s) s.COM.per_axis_deviation(1), all_features);
+    com_x_dev = com_x_dev(:); % Force to column vector
     com_z_dev = arrayfun(@(s) s.COM.per_axis_deviation(3), all_features);
-    total_rmse_est = vecnorm(all_rmse_per_dof_est, 2, 2);
+    com_z_dev = com_z_dev(:); % Force to column vector
+    
+    total_rmse_est = vecnorm(all_rmse_per_dof_est, 2, 2); % This is already a column vector
 
     % Create an interpolant
     F = scatteredInterpolant(com_x_dev, com_z_dev, total_rmse_est, 'linear', 'none');
@@ -559,14 +575,35 @@ try
     % Define features to correlate, now including COM per-axis
     features_to_correlate = {
         'K_V.mean_deviation', 'K_E.mean_deviation', 'R.mean_deviation', ...
-        'I_0.mean_deviation', 'M.mean_deviation', 'RHO_AIR.mean_deviation', ...
-        'COM.per_axis_deviation(1)', 'COM.per_axis_deviation(2)', 'COM.per_axis_deviation(3)'
+        'COM.per_axis_deviation(3)'
     };
     
     feature_data_table = zeros(numFiles, length(features_to_correlate));
-    for i=1:length(features_to_correlate)
-        % FIX: Use 'all_features' and correct eval syntax
-        feature_data_table(:,i) = arrayfun(@(s) eval(sprintf('s.%s', features_to_correlate{i})), all_features);
+    
+    % FIX: Replaced problematic arrayfun/eval with a robust loop
+    for i_file = 1:numFiles
+        s = all_features(i_file); % Get struct for this run
+        for j_feat = 1:length(features_to_correlate)
+            f_path = features_to_correlate{j_feat};
+            
+            % Robustly access nested fields and array elements
+            parts = strsplit(f_path, '.');
+            val = s;
+            for k = 1:length(parts)
+                part = parts{k};
+                array_match = regexp(part, '(\w+)\((\d+)\)', 'tokens');
+                if ~isempty(array_match)
+                    % Handle array access like 'per_axis_deviation(1)'
+                    fieldName = array_match{1}{1};
+                    idx = str2double(array_match{1}{2});
+                    val = val.(fieldName)(idx);
+                else
+                    % Handle simple field access
+                    val = val.(part);
+                end
+            end
+            feature_data_table(i_file, j_feat) = val;
+        end
     end
     
     % Clean up labels for heatmap
@@ -650,5 +687,3 @@ end
 fprintf('\n-------------------------------------------------\n');
 fprintf('All plotting complete. Figures saved to: %s\n', plotOutputPath);
 fprintf('-------------------------------------------------\n');
-
-
