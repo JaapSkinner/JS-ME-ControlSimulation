@@ -1,6 +1,6 @@
 function x = runSimulationVariedFcn()
 %% Parameter Sweep - Script Version
-clear all;
+clearvars;
 clear simOut;
 
 % % Configure these inputs manually
