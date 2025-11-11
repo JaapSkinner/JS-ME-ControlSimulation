@@ -59,14 +59,14 @@ pos_phase_z = pi/4;
 
 % --- Rotational Trajectory Parameters (roll, pitch, yaw) ---
 % Amplitudes [rad] - Keep roll and pitch angles modest to be realistic
-rot_amp_roll  = pi/64; % +/- 2 degrees
-rot_amp_pitch = pi/64; % +/- 2 degrees
-rot_amp_yaw   = pi/64;  % +/- 2 degrees
+rot_amp_roll  = 0.3*pi/64; % +/- 2 degrees
+rot_amp_pitch = 0.3*pi/64; % +/- 2 degrees
+rot_amp_yaw   = 0.3*pi/64;  % +/- 2 degrees
 
 % Frequencies [Hz] - Generally higher than position frequencies
-rot_freq_roll  = 0.1;
-rot_freq_pitch = 0.15;
-rot_freq_yaw   = 0.2;
+rot_freq_roll  = 0.25;
+rot_freq_pitch = 0.275;
+rot_freq_yaw   = 0.125;
 
 % Phase Offsets [rad]
 rot_phase_roll  = 0;

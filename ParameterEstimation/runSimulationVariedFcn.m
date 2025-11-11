@@ -46,13 +46,13 @@ variationPercent = [
 
 [Motor_i, Uav_i, features_i] = sampleParameters(Motor_nom, Uav_nom, variationPercent, [], Uav.N_ROTORS);
 
-
 run('mlebusgen.m');
 run('generate_trajectory.m')
 addpath(submodulePath);
 
 
-
+Uav = Uav_i;
+Motor = Motor_i;
 
 
 % %% Apply Variance to Parameters
@@ -72,7 +72,7 @@ addpath(submodulePath);
 %% Output tag
 testCase = 'estimation';
 tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
-outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation/UKFData');
+outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation/UKFData3');
 outputFile = sprintf('%s_%s_%s', testCase, uavType, tStr);
 
 %% Deactivate initial states
@@ -85,8 +85,8 @@ simIn = simIn.setVariable('windInput', windInput);
 simIn = simIn.setVariable('uavType', uavType);
 simIn = simIn.setVariable('windFile', windFile);
 simIn = simIn.setVariable('Simulation', Simulation);
-simIn = simIn.setVariable('Uav', Uav_i);
-simIn = simIn.setVariable('Motor', Motor_i);
+simIn = simIn.setVariable('Uav', Uav);
+simIn = simIn.setVariable('Motor', Motor);
 simIn = simIn.setVariable('Initial', Initial);
 simIn = simIn.setVariable('Aero', Aero);
 simIn = simIn.setVariable('MLEBUS', MLEBUS);

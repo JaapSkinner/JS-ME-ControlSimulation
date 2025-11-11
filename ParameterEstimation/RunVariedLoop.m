@@ -1,4 +1,4 @@
-NUMLOOPS = 100;
+NUMLOOPS = 300;
 clc;
 
 for i = 1:NUMLOOPS

@@ -40,7 +40,7 @@ if isequal(preprocessedPath, 0), disp('User selected Cancel. Script terminated.'
 
 % Create a 'Plots' folder in the same directory as the preprocessedPath
 [parentFolder, ~] = fileparts(preprocessedPath);
-plotOutputPath = fullfile(parentFolder, 'UKF_Analysis_Plots');
+plotOutputPath = fullfile(parentFolder, 'UKF_Analysis_Plots2');
 if ~isfolder(plotOutputPath)
     fprintf('Creating plot output directory: %s\n', plotOutputPath);
     mkdir(plotOutputPath);
