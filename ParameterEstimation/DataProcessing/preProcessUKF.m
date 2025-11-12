@@ -60,7 +60,7 @@ fprintf('Found %d result files. Starting preprocessing...\n', numFiles);
 %% --- 2. Create Output Folder ---
 % We'll create the new folder alongside the one we selected
 [parentFolder, ~] = fileparts(resultsPath);
-outputPath = fullfile(parentFolder, 'UKF_Preprocessed3');
+outputPath = fullfile(parentFolder, 'UKF_Preprocessed2');
 
 if ~isfolder(outputPath)
     fprintf('Creating output directory: %s\n', outputPath);
