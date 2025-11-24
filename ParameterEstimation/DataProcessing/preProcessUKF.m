@@ -29,7 +29,7 @@ fprintf('Step 1: Select the folder containing UKF result files...\n');
 try
     % Try to find the project root and navigate to the default data folder
     proj = matlab.project.rootProject();
-    startPath = fullfile(proj.RootFolder, 'Results', 'ParameterEstimation', 'UKFData');
+    startPath = fullfile(proj.RootFolder, 'Results', 'ParameterEstimation');
     if ~isfolder(startPath)
         % Fallback if the specific folder doesn't exist
         startPath = fullfile(proj.RootFolder, 'Results', 'ParameterEstimation');
@@ -60,7 +60,7 @@ fprintf('Found %d result files. Starting preprocessing...\n', numFiles);
 %% --- 2. Create Output Folder ---
 % We'll create the new folder alongside the one we selected
 [parentFolder, ~] = fileparts(resultsPath);
-outputPath = fullfile(parentFolder, 'UKF_Preprocessed2');
+outputPath = fullfile(parentFolder, 'UKF_Preprocessed4');
 
 if ~isfolder(outputPath)
     fprintf('Creating output directory: %s\n', outputPath);
@@ -244,4 +244,3 @@ fprintf('\n-------------------------------------------------\n');
 fprintf('Preprocessing Complete.\n');
 fprintf('Successfully processed and saved %d out of %d files.\n', processedCount, numFiles);
 fprintf('Preprocessed files are located in: %s\n', outputPath);
-

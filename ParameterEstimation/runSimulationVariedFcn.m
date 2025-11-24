@@ -1,105 +1,120 @@
-function x = runSimulationVariedFcn()
-%% Parameter Sweep - Script Version
-clearvars;
-clear simOut;
+function runSimulationVariedFcn(sampleIndex)
+%% RUN SIMULATION FROM FILE
+% Runs a single simulation using a pre-generated parameter set from the
+% 'Data/ParameterSets_Batch1' folder.
+%
+% Usage:
+%   runSimulationFromFile(1);   % Runs ParamSet_001.mat
+%   runSimulationFromFile(15);  % Runs ParamSet_015.mat
 
-% % Configure these inputs manually
-% paramNames = {
-%     'Motor.K_V';
-%     'Motor.R';
-%     'Motor.volt_slope';
-%     'Motor.Volt_offset';
-%     'Motor.B';
-% };
-% varianceList = [35; 35; 35; 35; 35];  % Only vary K_V by 20%
+    %% 1. Environment Setup
+    % Note: We cannot use 'clearvars' here because it would wipe 'sampleIndex'
+    run('ParameterEstimationBase.m');
 
-%% Run init
-run('ParameterEstimationBase.m');
-run('InitUKF.m') % Innit UKF before varying parameters
+    % Ensure projectRoot is defined (fallback to pwd if missing)
+    if ~exist('projectRoot', 'var')
+        projectRoot = pwd; 
+    end
+    
+    folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
+    dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
+    
+    % Construct filename
+    paramFileName = sprintf('ParamSet_%03d.mat', sampleIndex);
+    paramFilePath = fullfile(dataSetDir, paramFileName);
+    
+    if ~isfile(paramFilePath)
+        error('Parameter file not found: %s\nRun GenerateParameterSets.m first.', paramFilePath);
+    end
+    
+    % fprintf('--------------------------------------------------\n');
+    % fprintf('Running Simulation for Sample Index: %d\n', sampleIndex);
+    % fprintf('Loading Parameters: %s\n', paramFileName);
+    % 
+    %% 2. Initialize Base Simulation Environment
+    % Run the standard initialization to get the environment ready.
+    % This sets up the default paths, buses, and constants.
+    run('InitUKF.m');
+    
+    % Generate Trajectory
+    run('generate_trajectory.m');
+    
+    %% 3. Load & Apply Pre-Generated Parameters
+    loadedData = load(paramFilePath);
+    
+    % Extract variables
+    Uav_perturbed = loadedData.Uav;
+    Motor_perturbed = loadedData.Motor;
+    features_i = loadedData.features_i;
+    B_matrix_nominal_CLEAN = loadedData.B_matrix_nominal; % This is the "Gold Standard"
+    
+    % --- CRITICAL: FORCE UPDATE BASE WORKSPACE ---
+    % Simulink InitFcn often looks at the Base Workspace. We must overwrite
+    % the defaults created by Step 2 with our perturbed loaded data.
+    assignin('base', 'Uav', Uav_perturbed);
+    assignin('base', 'Motor', Motor_perturbed);
+    
+    % Run Bus Generation (In case it relies on Uav dimensions)
+    % Note: This might recalculate B_matrix based on the perturbed Uav,
+    % so we must restore the clean one immediately after.
+    run('mlebusgen.m'); 
+    
+    % Restore the Clean Nominal Matrix (from file) to the Workspace
+    assignin('base', 'B_matrix_nominal', B_matrix_nominal_CLEAN);
+    
+    % Local variables for the simulation object
+    Uav = Uav_perturbed;
+    Motor = Motor_perturbed;
+    B_matrix_nominal = B_matrix_nominal_CLEAN;
+    
+    %% 4. Prepare Simulation Input    
+    % Output Settings
+    testCase = 'estimation';
+    tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
+    
+    % Include SampleIndex in the filename for easy tracking
+    outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
+    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParams');
+    
+    % Simulation Input Object
+    simIn = Simulink.SimulationInput(modelName);
+    
+    % Simulation Configuration
+    simIn = simIn.setModelParameter('LoadInitialState', 'off');
+    simIn = simIn.setModelParameter('LoadExternalInput', 'off');
+    
+    % Inject Variables (Redundant with assignin, but good practice)
+    simIn = simIn.setVariable('windInput', windInput);
+    simIn = simIn.setVariable('uavType', uavType);
+    simIn = simIn.setVariable('windFile', windFile);
+    simIn = simIn.setVariable('Simulation', Simulation);
+    simIn = simIn.setVariable('Uav', Uav);
+    simIn = simIn.setVariable('Motor', Motor);
+    simIn = simIn.setVariable('Initial', Initial);
+    simIn = simIn.setVariable('Aero', Aero);
+    simIn = simIn.setVariable('MLEBUS', MLEBUS);
+    simIn = simIn.setVariable('UKF', UKF);
+    simIn = simIn.setVariable('trajectory_timeseries', trajectory_timeseries);
+    simIn = simIn.setVariable('B_matrix_nominal', B_matrix_nominal);
 
+    %% 5. Run Simulation
+    % fprintf('Starting Simulink...\n');
+    
+    % Force Simulink to refresh parameters from Base Workspace
+    % This fixes the "Shadowed Variable" bug where it ignores setVariable
+    % set_param(modelName, 'SimulationCommand', 'update');
+    
+    simOut = sim(simIn);
+    
+    %% 6. Save Results
+    if ~isfolder(outputFolder)
+        mkdir(outputFolder);
+    end
+    
+    savePath = fullfile(outputFolder, outputFile);
+    
+    save(savePath, 'simIn', 'simOut', 'Uav', 'Motor', 'features_i', 'B_matrix_nominal');
+    
+    % fprintf('Success! Results saved to:\n%s\n', savePath);
 
-Motor_nom = Motor;
-Uav_nom = Uav;
-Uav_nom.COM = [0 0 0];
-variationPercent = [
-%   Parameter        % Variation | Justification
-%   -----------------|-----------|-------------------------------------------
-    3.0;             % K_V       | Motor manufacturing tolerance
-    3.0;             % K_E       | Linked to K_V
-    3.0;             % C_TAU     | Linked to K_V
-    1.0;             % B         | Motor damping (minor effect)
-    2.0;             % Volt_offset | ESC/electronics tolerance
-    2.0;             % volt_slope| ESC/electronics tolerance
-    5.0;             % R         | Varies with motor temp & quality
-    10.0;            % I_0       | No-load current, sensitive to bearings/friction
-    0.5;             % D_UAV     | Rigid airframe dimension
-    1.0;             % D_PROP    | Propeller manufacturing tolerance
-    2.0;             % M         | Overall mass variation (component weight, battery)
-    5.0;             % I         | Inertia, highly sensitive to component placement
-    10.0;            % RHO_AIR   | Environmental (temp, altitude, humidity)
-    1.0;             % R_PROP    | Propeller dimension
-    0.5;             % A_UAV     | Rigid airframe dimension
-    1.0;             % A_PROP    | Propeller manufacturing tolerance
-    5.0;             % ZETA      | Aerodynamic coefficient (often uncertain)
-    1.0;             % COM       | Set to 1 because it's driven by an absolute sigma
-];
-
-[Motor_i, Uav_i, features_i] = sampleParameters(Motor_nom, Uav_nom, variationPercent, [], Uav.N_ROTORS);
-
-run('mlebusgen.m');
-run('generate_trajectory.m')
-addpath(submodulePath);
-
-
-Uav = Uav_i;
-Motor = Motor_i;
-
-
-% %% Apply Variance to Parameters
-% for i = 1:length(paramNames)
-%     pname = paramNames{i};
-%     pct = varianceList(i);
-% 
-%     parts = strsplit(pname, '.');
-%     base = parts{1};
-%     field = parts{2};
-% 
-%     val = eval(sprintf('%s.%s', base, field))
-%     newVal = val .* (1 + (2*rand(size(val)) - 1) * (pct / 100))  % random variation
-%     eval(sprintf('%s.%s = newVal;', base, field))
-% end
-
-%% Output tag
-testCase = 'estimation';
-tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
-outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation/UKFData3');
-outputFile = sprintf('%s_%s_%s', testCase, uavType, tStr);
-
-%% Deactivate initial states
-set_param(modelName, 'LoadInitialState', 'off');
-set_param(modelName, 'LoadExternalInput', 'off');
-
-%% Set simulation input
-simIn = Simulink.SimulationInput(modelName);
-simIn = simIn.setVariable('windInput', windInput);
-simIn = simIn.setVariable('uavType', uavType);
-simIn = simIn.setVariable('windFile', windFile);
-simIn = simIn.setVariable('Simulation', Simulation);
-simIn = simIn.setVariable('Uav', Uav);
-simIn = simIn.setVariable('Motor', Motor);
-simIn = simIn.setVariable('Initial', Initial);
-simIn = simIn.setVariable('Aero', Aero);
-simIn = simIn.setVariable('MLEBUS', MLEBUS);
-simIn = simIn.setVariable('UKF', UKF);
-simIn = simIn.setVariable('trajectory_timeseries', trajectory_timeseries);
-
-%% Run
-simOut = sim(simIn);
-
-%% Save
-if ~isfolder(outputFolder)
-    mkdir(outputFolder)
-end
-save(fullfile(outputFolder, outputFile), 'simIn', 'simOut', 'Uav', 'Motor','features_i','B_matrix_nominal');
-x=1;
 end
