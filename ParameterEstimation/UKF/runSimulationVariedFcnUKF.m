@@ -1,4 +1,4 @@
-function runSimulationVariedFcn(sampleIndex)
+function runSimulationVariedFcnUKF(sampleIndex)
 %% RUN SIMULATION FROM FILE
 % Runs a single simulation using a pre-generated parameter set from the
 % 'Data/ParameterSets_Batch1' folder.

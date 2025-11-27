@@ -24,6 +24,9 @@
 %
 clear; clc; close all;
 
+OUTPUT_FOLDER = 'UKF_Preprocessed_Fixed1';
+
+
 %% --- 1. Select Input Folder ---
 fprintf('Step 1: Select the folder containing UKF result files...\n');
 try
@@ -60,7 +63,7 @@ fprintf('Found %d result files. Starting preprocessing...\n', numFiles);
 %% --- 2. Create Output Folder ---
 % We'll create the new folder alongside the one we selected
 [parentFolder, ~] = fileparts(resultsPath);
-outputPath = fullfile(parentFolder, 'UKF_Preprocessed4');
+outputPath = fullfile(parentFolder, OUTPUT_FOLDER);
 
 if ~isfolder(outputPath)
     fprintf('Creating output directory: %s\n', outputPath);

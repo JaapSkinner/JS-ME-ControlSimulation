@@ -1,33 +1,25 @@
-%% ANALYZE PREPROCESSED SIMULATION DATA (RLS Version)
+%% ANALYZE UKF vs RLS SIMULATION RESULTS
 %
-% This script loads all files from a '..._Preprocessed' folder,
-% aggregates data, calculates wrench prediction error metrics, and plots
-% them against the simulation's ground-truth feature variations.
-%
-% This version also loads the "Nominal" (pre-estimation guess) wrench
-% prediction to compare the estimator's performance against the baseline.
-%
-% Steps:
-%   1. Asks user to select the 'RLS_Preprocessed' folder.
-%   2. Creates a 'RLS_Analysis_Plots' folder to save all figures.
-%   3. Initializes an empty 'results' struct array.
-%   4. For each 'preprocessed_*.mat' file:
-%      a. Loads the file.
-%      b. Aligns Real_Wrench, Predicted_Wrench (Estimated), and
-%         Nom_Predicted_Wrench (Nominal) timeseries.
-%      c. Calculates the full error time-series for both 'Estimated' and 'Nominal'.
-%      d. Calculates per-DOF RMSE and overall magnitude RMSE for both.
-%      e. Stores all metrics, features, and error time-series in the
-%         'results' struct.
-%   5. After the loop, prepares aggregated data for plotting by
-%      interpolating all error series onto a common time grid.
-%   6. Generates a comprehensive set of plots comparing Estimator vs. Nominal
-%      performance, saving each figure to the 'Plots' folder.
+% This script loads preprocessed data containing both UKF and RLS estimates.
+% It generates comparative plots for:
+%   1. Single Run Tracking (Separate plots for UKF and RLS).
+%   2. Aggregate Error Quantiles (Combined).
+%   3. Statistical Box Plots (Grouped by Axis, Split Force/Torque).
+%   4. Performance vs. System Variation Scatter (Combined).
 %
 clear; clc; close all;
 
-%% --- 1. Select Preprocessed Folder & Create Plot Output Folder ---
-fprintf('Step 1: Select the folder containing preprocessed result files (e.g., RLS_Preprocessed)...\n');
+%% --- CONFIGURATION ---
+TRIM_SECONDS = 5.0; % Number of seconds to cut from start and end
+
+% Color Palette
+c.nom = [0.6350 0.0780 0.1840]; % Red (Nominal)
+c.ukf = [0.0000 0.4470 0.7410]; % Blue (UKF)
+c.rls = [0.4660 0.6740 0.1880]; % Green (RLS)
+c.true = [0 0 0];               % Black (Ground Truth)
+
+%% --- 1. Select Preprocessed Folder ---
+fprintf('Step 1: Select the folder containing UKF_RLS_Preprocessed results...\n');
 try
     proj = matlab.project.rootProject();
     startPath = fullfile(proj.RootFolder, 'Results', 'ParameterEstimation');
@@ -35,615 +27,361 @@ try
 catch
     startPath = pwd;
 end
-preprocessedPath = uigetdir(startPath, 'Select the Folder Containing Preprocessed Results');
-if isequal(preprocessedPath, 0), disp('User selected Cancel. Script terminated.'); return; end
 
-% Create a 'Plots' folder in the same directory as the preprocessedPath
+preprocessedPath = uigetdir(startPath, 'Select Folder Containing Preprocessed Data');
+if isequal(preprocessedPath, 0)
+    disp('User selected Cancel. Script terminated.'); 
+    return; 
+end
+
 [parentFolder, ~] = fileparts(preprocessedPath);
-plotOutputPath = fullfile(parentFolder, 'RLS_Analysis_Plots'); % Changed from UKF
+plotOutputPath = fullfile(parentFolder, 'UKF_RLS_Analysis_Plots'); 
+
 if ~isfolder(plotOutputPath)
-    fprintf('Creating plot output directory: %s\n', plotOutputPath);
     mkdir(plotOutputPath);
-else
-    fprintf('Plot output directory already exists: %s\n', plotOutputPath);
+    fprintf('Created output folder: %s\n', plotOutputPath);
 end
 
 resultFiles = dir(fullfile(preprocessedPath, 'preprocessed_estimation_*.mat'));
 numFiles = length(resultFiles);
-if numFiles == 0, error('No preprocessed_estimation_*.mat files found in: %s', preprocessedPath); end
-fprintf('Found %d preprocessed files. Aggregating results...\n', numFiles);
+if numFiles == 0
+    error('No preprocessed files found in: %s', preprocessedPath);
+end
 
-%% --- 2. Initialize Results Aggregator & Plot Settings ---
-% We store more data now, including the full error timeseries for each run
-% for both the Estimated (RLS) and Nominal (Guess) predictions.
-results = struct('filename', {}, ...
-                 'rmse_per_dof_est', {}, ...         % [1x6] vector of RMSE for (Fx,Fy,Fz,Tx,Ty,Tz)
-                 'rmse_overall_force_N_est', {}, ... % Scalar L2-norm RMSE for force
-                 'rmse_overall_torque_Nm_est', {}, ...% Scalar L2-norm RMSE for torque
-                 'wrench_error_est', {}, ...        % [Tx6] matrix
-                 'rmse_per_dof_nom', {}, ...         % [1x6] vector
-                 'rmse_overall_force_N_nom', {}, ... % Scalar L2-norm
-                 'rmse_overall_torque_Nm_nom', {}, ...% Scalar L2-norm
-                 'wrench_error_nom', {}, ...        % [Tx6] matrix
-                 'time', {}, ...                 % [Tx1] vector
-                 'features', {});               % Struct of ground-truth variations
-% Pre-allocate for speed
-results(numFiles).filename = [];
+fprintf('Found %d files. Analyzing...\n', numFiles);
 
-% Plotting Labels and Colors
-dof_labels = {'F_x (N)', 'F_y (N)', 'F_z (N)', '\tau_x (N·m)', '\tau_y (N·m)', '\tau_z (N·m)'};
-dof_labels_short = {'Fx', 'Fy', 'Fz', 'Tx', 'Ty', 'Tz'};
-c.true = [0 0 0];                         % Black
-c.est = [0.0 0.4470 0.7410];            % Blue
-c.nom = [0.8500 0.3250 0.0980];         % Red
-c.est_fill = [c.est, 0.2];               % Blue with alpha
-c.nom_fill = [c.nom, 0.2];               % Red with alpha
+%% --- 2. Initialize Aggregation Structures ---
+% We will store RMSEs for boxplots and scatter plots
+% Structure: [NumFiles x 1]
+aggData = struct('filename', {}, 'features', {}, ...
+                 'rmse_dof_nom', {}, 'rmse_dof_ukf', {}, 'rmse_dof_rls', {}, ...
+                 'rmse_total_nom', {}, 'rmse_total_ukf', {}, 'rmse_total_rls', {}, ...
+                 'time_aligned', {}, ...
+                 'error_nom', {}, 'error_ukf', {}, 'error_rls', {});
 
-%% --- 3. Process Each File and Aggregate Results ---
-processedCount = 0;
+dof_labels = {'F_x', 'F_y', 'F_z', '\tau_x', '\tau_y', '\tau_z'};
+
+%% --- 3. Process Files ---
+validCount = 0;
+
 for i = 1:numFiles
-    currentFileName = resultFiles(i).name;
-    fullFilePath = fullfile(preprocessedPath, currentFileName);
-    fprintf('Aggregating file (%d/%d): %s\n', i, numFiles, currentFileName);
+    fName = resultFiles(i).name;
+    fullPath = fullfile(preprocessedPath, fName);
+    
     try
-        S = load(fullFilePath);
-        % Check for all required data, including new Nominal wrench
-        if ~isfield(S, 'Real_Wrench') || ~isfield(S, 'Predicted_Wrench') || ...
-           ~isfield(S, 'Nom_Predicted_Wrench') || ~isfield(S, 'features_i') || ~isfield(S, 'B_nom')
-            warning('File %s is missing required data (Real/Predicted/Nominal Wrench or features_i/B_nom). Skipping.', currentFileName);
+        S = load(fullPath);
+        
+        % Check required fields
+        if ~isfield(S, 'Predicted_Wrench_UKF') || ~isfield(S, 'Predicted_Wrench_RLS') || ...
+           ~isfield(S, 'Real_Wrench')
+            fprintf('Skipping %s (Missing data fields)\n', fName);
             continue;
         end
         
-        % --- b. Align Time ---
-        time_start = max(S.Real_Wrench.Time(1), S.Predicted_Wrench.Time(1));
-        time_end = min(S.Real_Wrench.Time(end), S.Predicted_Wrench.Time(end));
-        time_common = S.Real_Wrench.Time(S.Real_Wrench.Time >= time_start & S.Real_Wrench.Time <= time_end);
+        % --- Time Synchronization & Trimming ---
+        % Find common start/end times across all signals
+        t_start_raw = max([S.Real_Wrench.Time(1), S.Predicted_Wrench_UKF.Time(1), S.Predicted_Wrench_RLS.Time(1)]);
+        t_end_raw   = min([S.Real_Wrench.Time(end), S.Predicted_Wrench_UKF.Time(end), S.Predicted_Wrench_RLS.Time(end)]);
         
-        if isempty(time_common) || length(time_common) < 10 % Skip if not enough data
-            warning('File %s has no overlapping time data. Skipping.', currentFileName);
-            continue;
+        t_trim_start = t_start_raw + TRIM_SECONDS;
+        t_trim_end   = t_end_raw - TRIM_SECONDS;
+        
+        if t_trim_end <= t_trim_start
+            continue; 
         end
         
-        real_wrench_data = resample(S.Real_Wrench, time_common).Data;
-        est_pred_wrench_data = resample(S.Predicted_Wrench, time_common).Data;
-        nom_pred_wrench_data = resample(S.Nom_Predicted_Wrench, time_common).Data;
+        % Create common time vector based on Real_Wrench sampling
+        raw_time = S.Real_Wrench.Time;
+        time_common = raw_time(raw_time >= t_trim_start & raw_time <= t_trim_end);
         
-        % --- c. Calculate Error (Estimated vs. Nominal) ---
-        wrenchError_est = real_wrench_data - est_pred_wrench_data; % [Time x 6]
-        wrenchError_nom = real_wrench_data - nom_pred_wrench_data; % [Time x 6]
+        if length(time_common) < 10, continue; end
         
-        % --- d. Calculate Scalar Metrics (Estimated) ---
-        forceError_N_est = wrenchError_est(:, 1:3);
-        torqueError_Nm_est = wrenchError_est(:, 4:6);
-        rmse_per_dof_est = rms(wrenchError_est, 1); % [1x6] vector
-        forceErrorMagnitude_est = vecnorm(forceError_N_est, 2, 2);
-        torqueErrorMagnitude_est = vecnorm(torqueError_Nm_est, 2, 2);
-        rmseForceMag_est = rms(forceErrorMagnitude_est);   % Scalar
-        rmseTorqueMag_est = rms(torqueErrorMagnitude_est); % Scalar
+        % Resample all data to common time
+        w_real = resample(S.Real_Wrench, time_common).Data;
+        w_nom  = resample(S.Nom_Predicted_Wrench, time_common).Data;
+        w_ukf  = resample(S.Predicted_Wrench_UKF, time_common).Data;
+        w_rls  = resample(S.Predicted_Wrench_RLS, time_common).Data;
         
-        % --- d. Calculate Scalar Metrics (Nominal) ---
-        forceError_N_nom = wrenchError_nom(:, 1:3);
-        torqueError_Nm_nom = wrenchError_nom(:, 4:6);
-        rmse_per_dof_nom = rms(wrenchError_nom, 1); % [1x6] vector
-        forceErrorMagnitude_nom = vecnorm(forceError_N_nom, 2, 2);
-        torqueErrorMagnitude_nom = vecnorm(torqueError_Nm_nom, 2, 2);
-        rmseForceMag_nom = rms(forceErrorMagnitude_nom);   % Scalar
-        rmseTorqueMag_nom = rms(torqueErrorMagnitude_nom); % Scalar
+        % --- Error Calculation ---
+        e_nom = w_real - w_nom;
+        e_ukf = w_real - w_ukf;
+        e_rls = w_real - w_rls;
         
-        % --- e. Store in Aggregator ---
-        results(i).filename = currentFileName;
-        results(i).time = time_common;
-        results(i).features = S.features_i;
-        % Estimated
-        results(i).rmse_per_dof_est = rmse_per_dof_est;
-        results(i).rmse_overall_force_N_est = rmseForceMag_est;
-        results(i).rmse_overall_torque_Nm_est = rmseTorqueMag_est;
-        results(i).wrench_error_est = wrenchError_est;
-        % Nominal
-        results(i).rmse_per_dof_nom = rmse_per_dof_nom;
-        results(i).rmse_overall_force_N_nom = rmseForceMag_nom;
-        results(i).rmse_overall_torque_Nm_nom = rmseTorqueMag_nom;
-        results(i).wrench_error_nom = wrenchError_nom;
+        % --- Metrics ---
+        % 1. RMSE per DOF (for Boxplots)
+        rmse_dof_nom = rms(e_nom, 1);
+        rmse_dof_ukf = rms(e_ukf, 1);
+        rmse_dof_rls = rms(e_rls, 1);
         
-        processedCount = processedCount + 1;
+        % 2. Total RMSE (Norm of all errors) for Scatter plot
+        % Flatten the error matrix to get a single scalar score for the run
+        rmse_total_nom = rms(vecnorm(e_nom, 2, 2));
+        rmse_total_ukf = rms(vecnorm(e_ukf, 2, 2));
+        rmse_total_rls = rms(vecnorm(e_rls, 2, 2));
+        
+        % --- Store ---
+        validCount = validCount + 1;
+        aggData(validCount).filename = fName;
+        aggData(validCount).features = S.features_i;
+        aggData(validCount).time_aligned = time_common - time_common(1); % Relative time 0 start
+        
+        aggData(validCount).rmse_dof_nom = rmse_dof_nom;
+        aggData(validCount).rmse_dof_ukf = rmse_dof_ukf;
+        aggData(validCount).rmse_dof_rls = rmse_dof_rls;
+        
+        aggData(validCount).rmse_total_nom = rmse_total_nom;
+        aggData(validCount).rmse_total_ukf = rmse_total_ukf;
+        aggData(validCount).rmse_total_rls = rmse_total_rls;
+        
+        aggData(validCount).error_nom = e_nom;
+        aggData(validCount).error_ukf = e_ukf;
+        aggData(validCount).error_rls = e_rls;
+        
+        % Save raw data for the FIRST valid file to use in Figure 1
+        if validCount == 1
+            exampleRun.time = time_common;
+            exampleRun.real = w_real;
+            exampleRun.nom  = w_nom;
+            exampleRun.ukf  = w_ukf;
+            exampleRun.rls  = w_rls;
+        end
+        
     catch ME
-        fprintf(2, 'ERROR processing file %s: %s\n', currentFileName, ME.message);
-        fprintf(2, 'Skipping this file.\n');
+        fprintf('Error processing %s: %s\n', fName, ME.message);
     end
 end
-% Clean up empty entries
-results = results(1:processedCount);
-if processedCount == 0, error('No files were successfully processed.'); end
-numFiles = processedCount; % Update numFiles to reflect actual processed count
-fprintf('\n-------------------------------------------------\n');
-fprintf('Aggregation Complete. Processed %d files.\n', processedCount);
-fprintf('The aggregated data is stored in the ''results'' struct array.\n');
-fprintf('-------------------------------------------------\n');
+aggData = aggData(1:validCount);
+fprintf('Successfully aggregated %d runs.\n', validCount);
 
-%% --- 4. Plotting Data Preparation ---
-% To create aggregate temporal plots (like Fig 2), we must interpolate all
-% error time-series onto a single, common time grid.
-fprintf('Preparing aggregated data for temporal plots...\n');
-try
-    all_time_cell = {results.time};
-    
-    % Find a master time grid. Use median start/end/step.
-    t_start = median(cellfun(@(t) t(1), all_time_cell));
-    t_end = median(cellfun(@(t) t(end), all_time_cell));
-    t_step = median(cellfun(@(t) median(diff(t)), all_time_cell));
-    
-    master_time = (t_start:t_step:t_end)';
-    nTimeSteps = length(master_time);
-    % Create [Time x 6 DOFs x N Runs] tensors for both Est and Nom errors
-    all_errors_interp_est = zeros(nTimeSteps, 6, numFiles);
-    all_errors_interp_nom = zeros(nTimeSteps, 6, numFiles);
-    
-    for i = 1:numFiles
-        % Interpolate this run's error onto the master time grid
-        all_errors_interp_est(:,:,i) = interp1(results(i).time, results(i).wrench_error_est, master_time, 'linear', NaN);
-        all_errors_interp_nom(:,:,i) = interp1(results(i).time, results(i).wrench_error_nom, master_time, 'linear', NaN);
+%% --- 4. PREPARE PLOTTING DATA ---
+
+% Matrix forms for boxplots: [N_files x 6]
+all_rmse_nom = vertcat(aggData.rmse_dof_nom);
+all_rmse_ukf = vertcat(aggData.rmse_dof_ukf);
+all_rmse_rls = vertcat(aggData.rmse_dof_rls);
+
+% Vectors for scatter plot: [N_files x 1]
+vec_rmse_total_nom = [aggData.rmse_total_nom]';
+vec_rmse_total_ukf = [aggData.rmse_total_ukf]';
+vec_rmse_total_rls = [aggData.rmse_total_rls]';
+
+% Feature Variation Calculation (Z-Score Sum) for Scatter Plot
+all_features = [aggData.features];
+field_names = fields(all_features);
+feature_vals = zeros(validCount, 0);
+
+% Extract scalar values from feature structure
+for k = 1:length(field_names)
+    fname = field_names{k};
+    if isstruct(all_features(1).(fname))
+        % Handle nested 'mean_deviation' if exists
+        if isfield(all_features(1).(fname), 'mean_deviation')
+            vals = [all_features.(fname)];
+            feature_vals(:, end+1) = [vals.mean_deviation]';
+        end
+    elseif isnumeric(all_features(1).(fname))
+        feature_vals(:, end+1) = [all_features.(fname)]';
     end
-    
-    % Get all per-DOF RMSEs into simple [N Runs x 6 DOFs] matrices
-    all_rmse_per_dof_est = vertcat(results.rmse_per_dof_est);
-    all_rmse_per_dof_nom = vertcat(results.rmse_per_dof_nom);
-    
-    % Get all features into a struct array
-    all_features = [results.features];
-    fprintf('Data preparation complete.\n');
-catch ME
-    fprintf(2, 'ERROR during data preparation: %s\n', ME.message);
-    fprintf(2, 'Cannot generate temporal plots (Fig 1, 2).\n');
-    % We can still try to generate Fig 3, 4, 5
-    all_rmse_per_dof_est = vertcat(results.rmse_per_dof_est);
-    all_rmse_per_dof_nom = vertcat(results.rmse_per_dof_nom);
-    all_features = [results.features];
 end
+% Normalized variation score
+z_feats = zscore(feature_vals);
+variation_score = sum(abs(z_feats), 2);
 
-%% --- 5. Plot Generation: B-Matrix Estimation Analysis ---
-fprintf('Generating plots...\n');
-% --- A.1. Illustrative Single-Run Example (Fig 1a, 1b) ---
-try
-    fprintf('  Generating Figure 1a, 1b (Single-Run Example)...\n');
-    % Load data for the *first* processed run
-    i_run = 1;
-    S_run1 = load(fullfile(preprocessedPath, results(i_run).filename));
+
+%% --- FIGURE 1: Single Run Tracking (Separated) ---
+% We create one figure for UKF and one for RLS to support report sections.
+
+if exist('exampleRun', 'var')
+    % --- Fig 1a: UKF vs Nominal vs True ---
+    f1a = figure('Name', 'Single Run: UKF Tracking', 'Position', [100 100 1000 600]);
+    t1a = tiledlayout(2, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
     
-    % Re-align this run's data
-    time_start_1 = max([S_run1.Real_Wrench.Time(1), S_run1.Predicted_Wrench.Time(1), S_run1.Nom_Predicted_Wrench.Time(1)]);
-    time_end_1 = min([S_run1.Real_Wrench.Time(end), S_run1.Predicted_Wrench.Time(end), S_run1.Nom_Predicted_Wrench.Time(end)]);
-    time_common_1 = S_run1.Real_Wrench.Time(S_run1.Real_Wrench.Time >= time_start_1 & S_run1.Real_Wrench.Time <= time_end_1);
-    
-    real_data_1 = resample(S_run1.Real_Wrench, time_common_1).Data;
-    pred_data_1 = resample(S_run1.Predicted_Wrench, time_common_1).Data;
-    nom_data_1 = resample(S_run1.Nom_Predicted_Wrench, time_common_1).Data;
-    
-    error_data_1_est = real_data_1 - pred_data_1;
-    error_data_1_nom = real_data_1 - nom_data_1;
-    
-    % Figure 1a: True vs. Estimated vs. Nominal Time-Series
-    fig1a = figure('Name', 'Fig 1a: Single Run Wrench Tracking', 'Position', [100 100 900 600]);
-    tLayout1a = tiledlayout(3, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
     for k = 1:6
-        nexttile(tLayout1a);
-        plot(time_common_1, real_data_1(:,k), 'k-', 'LineWidth', 1.5); hold on;
-        plot(time_common_1, pred_data_1(:,k), '-', 'Color', c.est, 'LineWidth', 1.5);
-        plot(time_common_1, nom_data_1(:,k), '--', 'Color', c.nom, 'LineWidth', 1.5);
-        title(dof_labels{k});
-        grid on;
-        if k == 1, legend('True', 'Estimated (RLS)', 'Nominal (Guess)', 'Location', 'northwest'); end % <-- CHANGED
-        if k >= 5, xlabel('Time (s)'); end
+        nexttile(t1a);
+        plot(exampleRun.time, exampleRun.real(:, k), 'k-', 'LineWidth', 1.5); hold on;
+        plot(exampleRun.time, exampleRun.nom(:, k), '--', 'Color', c.nom, 'LineWidth', 1.2);
+        plot(exampleRun.time, exampleRun.ukf(:, k), '-', 'Color', c.ukf, 'LineWidth', 1.2);
+        title(dof_labels{k}); grid on; xlim([exampleRun.time(1) exampleRun.time(end)]);
+        if k==1, legend('True', 'Nominal', 'UKF', 'Location', 'best'); end
     end
-    title(tLayout1a, 'Figure 1a: True vs. Estimated Wrench (Single Run)');
-    saveas(fig1a, fullfile(plotOutputPath, 'Fig1a_Wrench_Tracking.png'));
+    title(t1a, 'Single Run Tracking: UKF Estimate');
+    saveas(f1a, fullfile(plotOutputPath, 'Fig1a_SingleRun_UKF.png'));
     
-    % Figure 1b: Error Time-Series (Estimated vs. Nominal)
-    fig1b = figure('Name', 'Fig 1b: Single Run Error (True - Est)', 'Position', [150 150 900 600]);
-    tLayout1b = tiledlayout(3, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
+    % --- Fig 1b: RLS vs Nominal vs True ---
+    f1b = figure('Name', 'Single Run: RLS Tracking', 'Position', [150 150 1000 600]);
+    t1b = tiledlayout(2, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
+    
     for k = 1:6
-        nexttile(tLayout1b);
-        plot(time_common_1, error_data_1_est(:,k), '-', 'Color', c.est, 'LineWidth', 1); hold on;
-        plot(time_common_1, error_data_1_nom(:,k), '--', 'Color', c.nom, 'LineWidth', 1);
-        title(dof_labels{k});
-        grid on;
-        if k == 1, legend('Estimated (RLS) Error', 'Nominal (Guess) Error', 'Location', 'best'); end % <-- CHANGED
-        if k >= 5, xlabel('Time (s)'); end
-        ylabel('Error');
+        nexttile(t1b);
+        plot(exampleRun.time, exampleRun.real(:, k), 'k-', 'LineWidth', 1.5); hold on;
+        plot(exampleRun.time, exampleRun.nom(:, k), '--', 'Color', c.nom, 'LineWidth', 1.2);
+        plot(exampleRun.time, exampleRun.rls(:, k), '-', 'Color', c.rls, 'LineWidth', 1.2);
+        title(dof_labels{k}); grid on; xlim([exampleRun.time(1) exampleRun.time(end)]);
+        if k==1, legend('True', 'Nominal', 'RLS', 'Location', 'best'); end
     end
-    title(tLayout1b, 'Figure 1b: Instantaneous Error (Single Run)');
-    saveas(fig1b, fullfile(plotOutputPath, 'Fig1b_Error_Tracking.png'));
-catch ME
-    fprintf(2, 'Could not generate Figure 1: %s\n', ME.message);
+    title(t1b, 'Single Run Tracking: RLS Estimate');
+    saveas(f1b, fullfile(plotOutputPath, 'Fig1b_SingleRun_RLS.png'));
 end
 
-% --- A.2. Aggregate Temporal Behavior (Fig 2a, 2b, 2c) ---
-% These plots depend on 'all_errors_interp' from Section 4
-if exist('all_errors_interp_est', 'var')
-    try
-        fprintf('  Generating Figure 2a (Error Density)...\n');
-        % Figure 2a: Error Density Plot (Estimated)
-        fig2a_est = figure('Name', 'Fig 2a: Estimated Error Density', 'Position', [100 100 900 600]);
-        tLayout2a_est = tiledlayout(3, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
-        for k = 1:6
-            nexttile(tLayout2a_est);
-            error_vec_k = reshape(all_errors_interp_est(:, k, :), [], 1);
-            time_vec_k = repmat(master_time, numFiles, 1);
-            nan_mask = isnan(error_vec_k);
-            histogram2(time_vec_k(~nan_mask), error_vec_k(~nan_mask), ...
-                'DisplayStyle', 'tile', 'ShowEmptyBins', 'off', 'Normalization', 'pdf');
-            title(dof_labels{k});
-            if k >= 5, xlabel('Time (s)'); end
-            ylabel('Error'); colorbar;
-        end
-        title(tLayout2a_est, 'Figure 2a (Estimated): Error Density (All Runs)');
-        saveas(fig2a_est, fullfile(plotOutputPath, 'Fig2a_Density_Estimated.png'));
-        
-        % Figure 2a (Nominal): Error Density Plot
-        fig2a_nom = figure('Name', 'Fig 2a (Nominal): Nominal Error Density', 'Position', [150 150 900 600]);
-        tLayout2a_nom = tiledlayout(3, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
-        for k = 1:6
-            nexttile(tLayout2a_nom);
-            error_vec_k = reshape(all_errors_interp_nom(:, k, :), [], 1);
-            time_vec_k = repmat(master_time, numFiles, 1);
-            nan_mask = isnan(error_vec_k);
-            histogram2(time_vec_k(~nan_mask), error_vec_k(~nan_mask), ...
-                'DisplayStyle', 'tile', 'ShowEmptyBins', 'off', 'Normalization', 'pdf');
-            title(dof_labels{k});
-            if k >= 5, xlabel('Time (s)'); end
-            ylabel('Error'); colorbar;
-        end
-        title(tLayout2a_nom, 'Figure 2a (Nominal): Error Density (All Runs)');
-        saveas(fig2a_nom, fullfile(plotOutputPath, 'Fig2a_Density_Nominal.png'));
-    catch ME
-        fprintf(2, 'Could not generate Figure 2a: %s\n', ME.message);
-    end
-    
-    try
-        fprintf('  Generating Figure 2b (Quantile Bands)...\n');
-        % Figure 2b: Quantile Bands (Estimated vs. Nominal)
-        q_median_est = median(all_errors_interp_est, 3, 'omitnan'); % [Time x 6]
-        q_25_est = prctile(all_errors_interp_est, 25, 3);
-        q_75_est = prctile(all_errors_interp_est, 75, 3);
-        
-        q_median_nom = median(all_errors_interp_nom, 3, 'omitnan');
-        q_25_nom = prctile(all_errors_interp_nom, 25, 3);
-        q_75_nom = prctile(all_errors_interp_nom, 75, 3);
-        
-        fig2b = figure('Name', 'Fig 2b: Error Quantile Bands', 'Position', [100 100 900 600]);
-        tLayout2b = tiledlayout(3, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
-        for k = 1:6
-            nexttile(tLayout2b);
-            % Plot Nominal IQR (Reds)
-            fill([master_time; flipud(master_time)], [q_25_nom(:,k); flipud(q_75_nom(:,k))], c.nom, 'EdgeColor', 'none', 'FaceAlpha', 0.3); hold on;
-            % Plot Estimated IQR (Blues)
-            fill([master_time; flipud(master_time)], [q_25_est(:,k); flipud(q_75_est(:,k))], c.est, 'EdgeColor', 'none', 'FaceAlpha', 0.3);
-            % Plot Medians
-            plot(master_time, q_median_est(:,k), '-', 'Color', c.est, 'LineWidth', 2);
-            plot(master_time, q_median_nom(:,k), '-', 'Color', c.nom, 'LineWidth', 2);
-            title(dof_labels{k});
-            grid on;
-            if k == 1, legend('IQR (Nominal)', 'IQR (Estimated)', 'Median (Estimated)', 'Median (Nominal)'); end
-            if k >= 5, xlabel('Time (s)'); end
-            ylabel('Error');
-        end
-        title(tLayout2b, 'Figure 2b: Aggregate Error Quantiles (IQR & Median)');
-        saveas(fig2b, fullfile(plotOutputPath, 'Fig2b_Quantile_Bands.png'));
-    catch ME
-        fprintf(2, 'Could not generate Figure 2b: %s\n', ME.message);
-    end
-    
-    try
-        fprintf('  Generating Figure 2c (RMS-Error Evolution)...\n');
-        % Figure 2c: RMS-Error Evolution
-        rms_evolution_est = sqrt(mean(all_errors_interp_est.^2, 3, 'omitnan'));
-        rms_evolution_nom = sqrt(mean(all_errors_interp_nom.^2, 3, 'omitnan'));
-        
-        fig2c = figure('Name', 'Fig 2c: RMS-Error Evolution', 'Position', [150 150 900 600]);
-        tLayout2c = tiledlayout(3, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
-        for k=1:6
-            nexttile(tLayout2c);
-            plot(master_time, rms_evolution_est(:,k), '-', 'Color', c.est, 'LineWidth', 1.5); hold on;
-            plot(master_time, rms_evolution_nom(:,k), '--', 'Color', c.nom, 'LineWidth', 1.5);
-            title(dof_labels{k});
-            grid on;
-            if k==1, legend('Estimated (RLS)', 'Nominal (Guess)'); end % <-- CHANGED
-            if k>=5, xlabel('Time (s)'); end
-            ylabel('RMS Error');
-        end
-        title(tLayout2c, 'Figure 2c: RMS Error Evolution (Averaged Across All Runs)');
-        saveas(fig2c, fullfile(plotOutputPath, 'Fig2c_RMSE_Evolution.png'));
-    catch ME
-        fprintf(2, 'Could not generate Figure 2c: %s\n', ME.message);
-    end
-else
-    fprintf(2, 'Skipping aggregate temporal plots (Fig 2) due to data prep error.\n');
+%% --- FIGURE 2: Aggregate Error Quantiles (Combined) ---
+% Using Median lines for all 3 to compare behavior over time
+
+% 1. Interpolate all errors to a master time vector
+all_time_vecs = {aggData.time_aligned};
+durations = cellfun(@(t) t(end), all_time_vecs);
+master_time = 0:0.1:min(durations);
+
+if isempty(master_time), master_time = 0:0.1:10; end 
+nSteps = length(master_time);
+
+interp_err_nom = zeros(nSteps, 6, validCount);
+interp_err_ukf = zeros(nSteps, 6, validCount);
+interp_err_rls = zeros(nSteps, 6, validCount);
+
+for i = 1:validCount
+    t = aggData(i).time_aligned;
+    interp_err_nom(:,:,i) = interp1(t, aggData(i).error_nom, master_time, 'linear', 0);
+    interp_err_ukf(:,:,i) = interp1(t, aggData(i).error_ukf, master_time, 'linear', 0);
+    interp_err_rls(:,:,i) = interp1(t, aggData(i).error_rls, master_time, 'linear', 0);
 end
 
-% --- A.3. Statistical Summaries (Fig 3a, 3b) ---
-try
-    fprintf('  Generating Figure 3a (RMSE Box Plot)...\n');
-    % Figure 3a: Box plots of final RMSE per DOF
-    fig3a = figure('Name', 'Fig 3a: Final RMSE Distribution (All Runs)', 'Position', [100 100 1000 450]);
-    
-    % Create two side-by-side plots for clarity
-    ax1 = subplot(1, 2, 1);
-    h_est = boxplot(all_rmse_per_dof_est, 'Labels', dof_labels_short, 'Colors', c.est, 'MedianStyle', 'target');
-    set(h_est, {'linew'}, {1.5}); % Make lines thicker
-    title('Figure 3a: Estimated (RLS) RMSE'); % <-- CHANGED
-    ylabel('RMSE');
-    grid on;
-    
-    ax2 = subplot(1, 2, 2);
-    h_nom = boxplot(all_rmse_per_dof_nom, 'Labels', dof_labels_short, 'Colors', c.nom, 'MedianStyle', 'target');
-    set(h_nom, {'linew'}, {1.5}); % Make lines thicker
-    title('Figure 3a: Nominal (Guess) RMSE');
-    ylabel('RMSE');
-    grid on;
-    
-    % Get max Y-limit from both and apply to both for consistent scaling
-    max_y = max(max(get(ax1, 'YLim')), max(get(ax2, 'YLim')));
-    set(ax1, 'YLim', [0 max_y*1.05]);
-    set(ax2, 'YLim', [0 max_y*1.05]);
-    
-    saveas(fig3a, fullfile(plotOutputPath, 'Fig3a_RMSE_Boxplots.png'));
-catch ME
-    fprintf(2, 'Could not generate Figure 3a: %s\n', ME.message);
-end
+% 2. Calculate Medians
+med_nom = median(interp_err_nom, 3);
+med_ukf = median(interp_err_ukf, 3);
+med_rls = median(interp_err_rls, 3);
 
-try
-    fprintf('  Generating Figure 3b (RMSE ECDFs)...\n');
-    % Figure 3b: ECDFs of RMSE
-    fig3b = figure('Name', 'Fig 3b: RMSE ECDF per DOF', 'Position', [150 150 700 500]);
-    colors = lines(6);
-    hold on;
-    for k = 1:6
-        % Plot Estimated
-        [f_est, x_est] = ecdf(all_rmse_per_dof_est(:, k));
-        plot(x_est, f_est, '-', 'Color', colors(k,:), 'LineWidth', 2);
-        % Plot Nominal
-        [f_nom, x_nom] = ecdf(all_rmse_per_dof_nom(:, k));
-        plot(x_nom, f_nom, '--', 'Color', colors(k,:), 'LineWidth', 1.5);
-    end
-    hold off;
-    
-    % Create legend
-    legend_labels = cell(6*2, 1);
-    for k=1:6
-        legend_labels{2*k-1} = [dof_labels_short{k} ' (Est)'];
-        legend_labels{2*k} = [dof_labels_short{k} ' (Nom)'];
-    end
-    legend(legend_labels, 'Location', 'best');
-    title('Figure 3b: Empirical CDF of RMSE per DOF (Solid=Est, Dashed=Nom)');
-    xlabel('RMSE');
-    ylabel('Cumulative Probability');
-    ylim([0 1]); % Set Y-limit
-    grid on;
-    saveas(fig3b, fullfile(plotOutputPath, 'Fig3b_RMSE_ECDF.png'));
-catch ME
-    fprintf(2, 'Could not generate Figure 3b: %s\n', ME.message);
-end
+f2 = figure('Name', 'Aggregate Error Dynamics', 'Position', [200 200 1000 600]);
+t2 = tiledlayout(2, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
 
-%% --- A.4. Variation Sensitivity (Fig 4a, 4b, 4c) ---
-% NOTE: The generic feature-extraction logic is robust and requires no
-% changes, as it just operates on the 'all_features' struct.
-try
-    fprintf('  Generating Figure 4a (Total Variation vs. RMSE)...\n');
-    % Figure 4a: Scatter of total variation vs. total RMSE
+for k = 1:6
+    nexttile(t2);
+    % Plot 0 line
+    yline(0, 'k-', 'Alpha', 0.3); hold on;
     
-    % 1. Get all 'mean_deviation' field paths
-    all_field_names = fields(all_features);
-    feature_paths_to_normalize = {};
-    for j = 1:length(all_field_names)
-        if isfield(all_features(1).(all_field_names{j}), 'mean_deviation')
-            feature_paths_to_normalize{end+1} = [all_field_names{j} '.mean_deviation'];
-        end
-    end
+    % Plot Medians (Thinner lines as requested)
+    plot(master_time, med_nom(:, k), '--', 'Color', c.nom, 'LineWidth', 1.0);
+    plot(master_time, med_ukf(:, k), '-', 'Color', c.ukf, 'LineWidth', 1.5);
+    plot(master_time, med_rls(:, k), '-', 'Color', c.rls, 'LineWidth', 1.5);
     
-    % 2. Build the feature table (NOT normalized yet)
-    raw_feature_table = zeros(numFiles, length(feature_paths_to_normalize));
-    for i_file = 1:numFiles
-        s = all_features(i_file); % Get the struct for this run
-        for j_feat = 1:length(feature_paths_to_normalize)
-            f_path = feature_paths_to_normalize{j_feat};
-            
-            % Robustly access nested fields and array elements
-            parts = strsplit(f_path, '.');
-            val = s;
-            for k = 1:length(parts)
-                part = parts{k};
-                array_match = regexp(part, '(\w+)\((\d+)\)', 'tokens');
-                if ~isempty(array_match)
-                    fieldName = array_match{1}{1};
-                    idx = str2double(array_match{1}{2});
-                    val = val.(fieldName)(idx);
-                else
-                    val = val.(part);
-                end
-            end
-            raw_feature_table(i_file, j_feat) = val;
-        end
-    end
-    
-    % 3. Normalize (z-score) the table
-    norm_feature_table = zscore(raw_feature_table);
-    
-    % 4. "Total Variation" is the sum of these z-scores for each run
-    total_norm_var = sum(abs(norm_feature_table), 2);
-    
-    % Total RMSE = L2 norm of the per-DOF RMSE vector
-    total_rmse_est = vecnorm(all_rmse_per_dof_est, 2, 2); % [numFiles x 1]
-    total_rmse_nom = vecnorm(all_rmse_per_dof_nom, 2, 2); % [numFiles x 1]
-    fig4a = figure('Name', 'Fig 4a: Normalized Variation vs. Total RMSE', 'Position', [100 100 700 500]);
-    
-    % Plot Estimated
-    scatter(total_norm_var, total_rmse_est, 30, 'filled', 'MarkerFaceColor', c.est, 'MarkerFaceAlpha', 0.6);
-    hold on;
-    % Plot Nominal
-    scatter(total_norm_var, total_rmse_nom, 30, 's', 'MarkerEdgeColor', c.nom, 'MarkerFaceAlpha', 0.6);
-    
-    % Add regression lines
-    p_est = polyfit(total_norm_var, total_rmse_est, 1);
-    plot(total_norm_var, polyval(p_est, total_norm_var), '-', 'Color', c.est, 'LineWidth', 2);
-    
-    p_nom = polyfit(total_norm_var, total_rmse_nom, 1);
-    plot(total_norm_var, polyval(p_nom, total_norm_var), '--', 'Color', c.nom, 'LineWidth', 2);
-    
-    title('Figure 4a: Normalized Ground-Truth Variation vs. Total Estimation RMSE');
-    xlabel('Normalized Total Variation (Sum of |Z-Scores|)');
-    ylabel('Total RMSE (L2-Norm of per-DOF RMSE)');
-    grid on;
-    legend('Estimated (RLS) Runs', 'Nominal (Guess) Runs', 'Estimated Fit', 'Nominal Fit', 'Location', 'best'); % <-- CHANGED
-    saveas(fig4a, fullfile(plotOutputPath, 'Fig4a_Variation_vs_RMSE.png'));
-catch ME
-    fprintf(2, 'Could not generate Figure 4a: %s\n', ME.message);
+    title(dof_labels{k}); grid on;
+    xlim([master_time(1) master_time(end)]);
+    if k==1, legend('Zero Ref', 'Nominal Median', 'UKF Median', 'RLS Median', 'Location', 'best'); end
+    if k>3, xlabel('Time (s)'); end
+    ylabel('Error');
 end
+title(t2, 'Aggregate Error Dynamics (Median across all runs)');
+saveas(f2, fullfile(plotOutputPath, 'Fig2_ErrorDynamics_Combined.png'));
 
-try
-    fprintf('  Generating Figure 4b (COM Deviation Landscape)...\n');
-    % Figure 4b: 2D landscape (COM X-dev vs Z-dev)
-    
-    com_x_dev = arrayfun(@(s) s.COM.per_axis_deviation(1), all_features);
-    com_x_dev = com_x_dev(:); % Force to column vector
-    com_z_dev = arrayfun(@(s) s.COM.per_axis_deviation(3), all_features);
-    com_z_dev = com_z_dev(:); % Force to column vector
-    
-    total_rmse_est = vecnorm(all_rmse_per_dof_est, 2, 2); % This is already a column vector
-    % Create an interpolant
-    F = scatteredInterpolant(com_x_dev, com_z_dev, total_rmse_est, 'linear', 'none');
-    
-    % Create a grid to query the interpolant
-    [xq, yq] = meshgrid(linspace(min(com_x_dev), max(com_x_dev), 50), ...
-                        linspace(min(com_z_dev), max(com_z_dev), 50));
-    zq = F(xq, yq);
-    
-    fig4b = figure('Name', 'Fig 4b: 2D Performance Landscape (COM)', 'Position', [150 150 700 500]);
-    contourf(xq, yq, zq, 20, 'LineStyle', 'none');
-    hold on;
-    scatter(com_x_dev, com_z_dev, 20, 'k', 'filled'); % Show original points
-    title('Figure 4b: Estimation RMSE vs. COM Variation');
-    xlabel('COM X-Axis Deviation (m)');
-    ylabel('COM Z-Axis Deviation (m)');
-    colorbar;
-    c = colorbar;
-    c.Label.String = 'Total RMSE (Est)';
-    clim([min(total_rmse_est), max(total_rmse_est)]);
-    
-    saveas(fig4b, fullfile(plotOutputPath, 'Fig4b_COM_Landscape.png'));
-    
-catch ME
-    fprintf(2, 'Could not generate Figure 4b: %s\n', ME.message);
-end
 
-try
-    fprintf('  Generating Figure 4c (Feature Importance)...\n');
-    % Figure 4c: Feature Importance (Correlation Heatmap)
-    
-    features_to_correlate = {
-        'K_V.mean_deviation', 'K_E.mean_deviation', 'R.mean_deviation', ...
-        'COM.per_axis_deviation(3)'
-    };
-    
-    feature_data_table = zeros(numFiles, length(features_to_correlate));
-    
-    for i_file = 1:numFiles
-        s = all_features(i_file); % Get struct for this run
-        for j_feat = 1:length(features_to_correlate)
-            f_path = features_to_correlate{j_feat};
-            
-            % Robustly access nested fields and array elements
-            parts = strsplit(f_path, '.');
-            val = s;
-            for k = 1:length(parts)
-                part = parts{k};
-                array_match = regexp(part, '(\w+)\((\d+)\)', 'tokens');
-                if ~isempty(array_match)
-                    fieldName = array_match{1}{1};
-                    idx = str2double(array_match{1}{2});
-                    val = val.(fieldName)(idx);
-                else
-                    val = val.(part);
-                end
-            end
-            feature_data_table(i_file, j_feat) = val;
-        end
-    end
-    
-    % Clean up labels for heatmap
-    feature_labels = strrep(features_to_correlate, '.mean_deviation', '');
-    feature_labels = strrep(feature_labels, '.per_axis_deviation', '');
-    feature_labels = strrep(feature_labels, '(1)', '_X');
-    feature_labels = strrep(feature_labels, '(2)', '_Y');
-    feature_labels = strrep(feature_labels, '(3)', '_Z');
-    
-    % Create a matrix of results to correlate against
-    total_rmse_est = vecnorm(all_rmse_per_dof_est, 2, 2);
-    total_rmse_nom = vecnorm(all_rmse_per_dof_nom, 2, 2);
-    results_table = [all_rmse_per_dof_est, all_rmse_per_dof_nom, total_rmse_est, total_rmse_nom];
-    
-    results_labels_est = strcat(dof_labels_short, ' (Est)');
-    results_labels_nom = strcat(dof_labels_short, ' (Nom)');
-    results_labels = [results_labels_est, results_labels_nom, {'Total RMSE (Est)'}, {'Total RMSE (Nom)'}];
-    
-    % Calculate correlation matrix
-    corr_matrix = corr(feature_data_table, results_table, 'Rows', 'complete');
-    
-    fig4c = figure('Name', 'Fig 4c: Feature Importance', 'Position', [100 100 1000 500]);
-    heatmap(results_labels, feature_labels, corr_matrix, ...
-            'Title', 'Figure 4c: Correlation (Feature Variation vs. RMSE)', ...
-            'Colormap', summer, 'ColorLimits', [-1 1]);
-    saveas(fig4c, fullfile(plotOutputPath, 'Fig4c_Correlation_Heatmap.png'));
-    
-catch ME
-    fprintf(2, 'Could not generate Figure 4c: %s\n', ME.message);
-end
+%% --- FIGURE 3: Comparative Box Plots (Grouped by Axis, Split Force/Torque) ---
+% Desired Layout: 
+% Subplot 1: Forces (Fx, Fy, Fz). Grouped: [Nom, UKF, RLS] per axis.
+% Subplot 2: Torques (Tx, Ty, Tz). Grouped: [Nom, UKF, RLS] per axis.
 
-%% --- A.5. Cross-DOF Behavior (Fig 5) ---
-try
-    fprintf('  Generating Figure 5 (Error Fingerprint)...\n');
-    % Figure 5: "Error Fingerprint" Heatmap
-    
-    % 1. Normalize RMSE per-DOF (each column 0-1)
-    rmse_norm_cols_est = (all_rmse_per_dof_est - min(all_rmse_per_dof_est, [], 1)) ./ ...
-                         (max(all_rmse_per_dof_est, [], 1) - min(all_rmse_per_dof_est, [], 1));
-    
-    % 2. Sort rows by overall magnitude (using L2 norm of the normalized row)
-    row_magnitudes_est = vecnorm(rmse_norm_cols_est, 2, 2);
-    [~, sort_idx] = sort(row_magnitudes_est, 'ascend');
-    
-    % 3. Plot (Side-by-side)
-    fig5 = figure('Name', 'Fig 5: Error Fingerprint', 'Position', [100 100 1100 500]);
-    
-    % Estimated
-    subplot(1, 2, 1);
-    imagesc(rmse_norm_cols_est(sort_idx, :));
-    title('Fig 5: Estimated (RLS) Error Fingerprint'); % <-- CHANGED
-    xlabel('DOF');
-    ylabel('Simulation Run (Sorted by error)');
-    set(gca, 'XTick', 1:6, 'XTickLabel', dof_labels_short, 'XTickLabelRotation', 30);
-    colorbar;
-    clim([0 1]);
-    
-    % Nominal (use the same row sorting for direct comparison)
-    % Normalize nominal columns
-    rmse_norm_cols_nom = (all_rmse_per_dof_nom - min(all_rmse_per_dof_nom, [], 1)) ./ ...
-                         (max(all_rmse_per_dof_nom, [], 1) - min(all_rmse_per_dof_nom, [], 1));
-    % Handle potential div by zero if a nom column is constant
-    rmse_norm_cols_nom(isnan(rmse_norm_cols_nom)) = 0; 
-    subplot(1, 2, 2);
-    imagesc(rmse_norm_cols_nom(sort_idx, :));
-    title('Fig 5: Nominal (Guess) Error Fingerprint');
-    xlabel('DOF');
-    ylabel('Simulation Run (Sorted by est. error)');
-    set(gca, 'XTick', 1:6, 'XTickLabel', dof_labels_short, 'XTickLabelRotation', 30);
-    colorbar;
-    clim([0 1]);
-    
-    saveas(fig5, fullfile(plotOutputPath, 'Fig5_Error_Fingerprint.png'));
-    
-catch ME
-    fprintf(2, 'Could not generate Figure 5: %s\n', ME.message);
-end
+f3 = figure('Name', 'Statistical Performance', 'Position', [100 100 1200 500]);
+t3 = tiledlayout(1, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
 
-fprintf('\n-------------------------------------------------\n');
-fprintf('All plotting complete. Figures saved to: %s\n', plotOutputPath);
-fprintf('-------------------------------------------------\n');
+% -- Helper for Boxplot Data Construction --
+% We construct a matrix where columns are: 
+% [Fx_Nom, Fx_UKF, Fx_RLS, Gap, Fy_Nom, Fy_UKF, Fy_RLS, Gap, ...]
+% The Gap column (NaNs) creates visual separation between axes.
+
+% --- Subplot 1: FORCES (Cols 1, 2, 3) ---
+nexttile(t3);
+nan_col = nan(validCount, 1);
+data_forces = [ ...
+    all_rmse_nom(:,1), all_rmse_ukf(:,1), all_rmse_rls(:,1), nan_col, ... % Fx
+    all_rmse_nom(:,2), all_rmse_ukf(:,2), all_rmse_rls(:,2), nan_col, ... % Fy
+    all_rmse_nom(:,3), all_rmse_ukf(:,3), all_rmse_rls(:,3) ];            % Fz
+
+% Positions for the boxes to ensure tight grouping
+positions_F = [1 1.25 1.5,  2.5 2.75 3.0,  4.0 4.25 4.5];
+group_labels_F = {'Nom','UKF','RLS', 'Nom','UKF','RLS', 'Nom','UKF','RLS'};
+
+% Remove the NaN columns for the plot command, keep positions
+plot_data_F = data_forces(:, [1:3, 5:7, 9:11]);
+
+hB1 = boxplot(plot_data_F, 'Positions', positions_F, 'Widths', 0.2, 'Colors', 'k');
+hold on;
+
+% Color the boxes manually
+h = findobj(gca,'Tag','Box');
+% Note: boxplot creates handles in reverse order (last column first)
+boxes_rls = h(1:3:end); 
+boxes_ukf = h(2:3:end);
+boxes_nom = h(3:3:end);
+
+set(boxes_rls, 'Color', c.rls, 'LineWidth', 1.5);
+set(boxes_ukf, 'Color', c.ukf, 'LineWidth', 1.5);
+set(boxes_nom, 'Color', c.nom, 'LineWidth', 1.5);
+
+set(gca, 'XTick', [1.25, 2.75, 4.25], 'XTickLabel', {'F_x', 'F_y', 'F_z'});
+ylabel('RMSE (N)'); grid on;
+title('Force Estimation Error');
+
+% Dummy lines for legend
+L1 = plot(nan, nan, 'Color', c.nom, 'LineWidth', 2);
+L2 = plot(nan, nan, 'Color', c.ukf, 'LineWidth', 2);
+L3 = plot(nan, nan, 'Color', c.rls, 'LineWidth', 2);
+legend([L1, L2, L3], 'Nominal', 'UKF', 'RLS', 'Location', 'northwest');
+
+
+% --- Subplot 2: TORQUES (Cols 4, 5, 6) ---
+nexttile(t3);
+data_torques = [ ...
+    all_rmse_nom(:,4), all_rmse_ukf(:,4), all_rmse_rls(:,4), nan_col, ... % Tx
+    all_rmse_nom(:,5), all_rmse_ukf(:,5), all_rmse_rls(:,5), nan_col, ... % Ty
+    all_rmse_nom(:,6), all_rmse_ukf(:,6), all_rmse_rls(:,6) ];            % Tz
+
+plot_data_T = data_torques(:, [1:3, 5:7, 9:11]);
+
+hB2 = boxplot(plot_data_T, 'Positions', positions_F, 'Widths', 0.2, 'Colors', 'k');
+hold on;
+
+h2 = findobj(gca,'Tag','Box');
+% Reverse order again
+set(h2(1:3:end), 'Color', c.rls, 'LineWidth', 1.5);
+set(h2(2:3:end), 'Color', c.ukf, 'LineWidth', 1.5);
+set(h2(3:3:end), 'Color', c.nom, 'LineWidth', 1.5);
+
+set(gca, 'XTick', [1.25, 2.75, 4.25], 'XTickLabel', {'\tau_x', '\tau_y', '\tau_z'});
+ylabel('RMSE (Nm)'); grid on;
+title('Torque Estimation Error');
+
+saveas(f3, fullfile(plotOutputPath, 'Fig3_Comparative_Boxplots.png'));
+
+
+%% --- FIGURE 4: Robustness Scatter (Variation vs RMSE) ---
+% Combined plot with 3 data points per file (Nom, UKF, RLS)
+
+f4 = figure('Name', 'Robustness Analysis', 'Position', [150 150 800 600]);
+
+% 1. Plot Nominal
+scatter(variation_score, vec_rmse_total_nom, 40, 's', 'MarkerEdgeColor', c.nom, 'LineWidth', 1.5); hold on;
+
+% 2. Plot UKF
+scatter(variation_score, vec_rmse_total_ukf, 40, 'o', 'MarkerEdgeColor', c.ukf, 'LineWidth', 1.5);
+
+% 3. Plot RLS
+scatter(variation_score, vec_rmse_total_rls, 40, 'd', 'MarkerEdgeColor', c.rls, 'LineWidth', 1.5);
+
+% Add trend lines
+p_nom = polyfit(variation_score, vec_rmse_total_nom, 1);
+p_ukf = polyfit(variation_score, vec_rmse_total_ukf, 1);
+p_rls = polyfit(variation_score, vec_rmse_total_rls, 1);
+
+x_fit = linspace(min(variation_score), max(variation_score), 100);
+
+plot(x_fit, polyval(p_nom, x_fit), '--', 'Color', c.nom, 'LineWidth', 1);
+plot(x_fit, polyval(p_ukf, x_fit), '-', 'Color', c.ukf, 'LineWidth', 1.5);
+plot(x_fit, polyval(p_rls, x_fit), '-', 'Color', c.rls, 'LineWidth', 1.5);
+
+xlabel('System Variation Index (Sum of Feature Z-Scores)');
+ylabel('Total RMSE (Norm)');
+title('Estimator Robustness to System Variations');
+grid on;
+legend('Nominal', 'UKF', 'RLS', 'Location', 'best');
+
+saveas(f4, fullfile(plotOutputPath, 'Fig4_Robustness_Scatter.png'));
+
+fprintf('Analysis Complete. Figures saved to: %s\n', plotOutputPath);
