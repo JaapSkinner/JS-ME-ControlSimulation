@@ -12,7 +12,7 @@
 %
 clear; clc; close all;
 
-FOLDERVERSION = 'RLS_PreprocessedFixed';
+FOLDERVERSION = 'RLS_PreprocessedHEX';
 %% --- 1. Run Initialization Scripts ---
 fprintf('Step 1: Running initialization scripts (ParameterEstimationBase, etc.)...\n');
 try

@@ -3,8 +3,8 @@
 proj = matlab.project.currentProject;
 projectRoot = proj.RootFolder;
 submodulePath = fullfile(projectRoot, 'Simulink_Flight_Simulation', 'Multirotor with PX4 2023');
-currentPath = fullfile(projectRoot, 'ParameterEstimation');
-modelDataFile = fullfile(projectRoot, 'ParameterEstimation', "Octo_CantedStacked_Flamingo.mat");
+currentPath = fullfile(projectRoot, 'ParameterEstimation','RLS');
+modelDataFile = fullfile(projectRoot, 'ParameterEstimation', "Hex.mat");
 windFile = fullfile(projectRoot, 'ParameterEstimation', 'windData.mat');
 
 addpath(genpath(submodulePath))
@@ -26,7 +26,7 @@ load(windFile);
 if exist('windData','var')
 windInput = timeseries(windData(:,2:4),windData(:,1));
 end
-tEnd = 30;
+tEnd = 20;
 %Add initialisation period (30s) for the simulation
 dt = mean(gradient(windInput.time));        %Mean sim timestep  
 t_init = 0:dt:10;                           %time array for the new data
@@ -43,7 +43,7 @@ windInput = append(initInput,windInput);
 %% Load Simulink model
 simModelPath = fullfile(projectRoot, 'Simulink_Flight_Simulation');
 addpath(simModelPath);
-modelName = 'MultirotorSimUKF';
+modelName = 'MultirotorSimRLS';
 load_system([modelName '.slx']);
 
 %% Set submodules
@@ -62,7 +62,7 @@ UseEstimators(modelName, true);
 UsePositionController(modelName, true);
 
 %% Initialize simulation
-tEnd = 20;
+tEnd = 60;
 
 set_param(modelName, 'LoadInitialState', 'off');
 set_param(modelName, 'LoadExternalInput', 'off');

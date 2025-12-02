@@ -9,14 +9,14 @@ function runSimulationVariedFcnUKF(sampleIndex)
 
     %% 1. Environment Setup
     % Note: We cannot use 'clearvars' here because it would wipe 'sampleIndex'
-    run('ParameterEstimationBase.m');
+    run('HEXBaseUKF.m');
 
     % Ensure projectRoot is defined (fallback to pwd if missing)
     if ~exist('projectRoot', 'var')
-        projectRoot = pwd; 
+        projectRoot = pwd;
     end
     
-    folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
+    folderName = 'ParameterSetHEX'; % Folder name from GenerateParameterSets.m
     dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
     
     % Construct filename
@@ -34,7 +34,7 @@ function runSimulationVariedFcnUKF(sampleIndex)
     %% 2. Initialize Base Simulation Environment
     % Run the standard initialization to get the environment ready.
     % This sets up the default paths, buses, and constants.
-    run('InitUKF.m');
+    run('InitUKFHEX.m');
     
     % Generate Trajectory
     run('generate_trajectory.m');
@@ -74,7 +74,7 @@ function runSimulationVariedFcnUKF(sampleIndex)
     
     % Include SampleIndex in the filename for easy tracking
     outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParams2');
+    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataHEX');
     
     % Simulation Input Object
     simIn = Simulink.SimulationInput(modelName);
