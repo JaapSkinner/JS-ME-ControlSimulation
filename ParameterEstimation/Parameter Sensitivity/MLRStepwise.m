@@ -137,7 +137,7 @@ for sp = 1:nSetpoints
 end
 
 % --- 3. Save Final Results to File ---
-output_filename = fullfile(resultsPath, '/../stepwise_analysis_results.mat');
+output_filename = fullfile(resultsPath, '/../stepwise_analysis_results2.mat');
 save(output_filename, 'analysis_results', 'initial_predictors', 'P_VALUE_THRESHOLD');
 fprintf('\n============================================================\n');
 fprintf('Analysis complete. All simplified models saved to:\n%s\n', output_filename);

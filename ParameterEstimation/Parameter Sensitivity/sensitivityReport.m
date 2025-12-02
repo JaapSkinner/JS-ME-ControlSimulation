@@ -1,12 +1,14 @@
 % =========================================================================
-% GENERATE OVERALL SENSITIVITY REPORT (v6.2 - Robust CI Plotting)
+% GENERATE OVERALL SENSITIVITY REPORT (v6.3 - Split Plots & Sorted by Leakage)
 % =========================================================================
 % This script loads the results from the stepwise analysis and creates a
 % high-level summary report and optional detailed plots.
 %
-% VERSION 6.2 REFINEMENTS:
-% - Replaced plotCoefficients logic with the robust 'coefCI' function to
-%   ensure compatibility across different MATLAB versions.
+% VERSION 6.3 REFINEMENTS:
+% - Split summary into two separate figures (Frequency vs Strength).
+% - Sorted summary plots based on Leakage Strength (Avg t-Stat).
+% - Renamed legends to 'Wrench Error' and 'Leakage'.
+% - Saves summary plots as .fig files.
 %
 clear; clc; close all;
 
@@ -14,6 +16,7 @@ clear; clc; close all;
 HIDE_ZERO_SIGNIFICANCE_PARAMS_IN_PLOT = true;
 GENERATE_MODEL_PLOTS = true;
 SETPOINTS_TO_PLOT = [1, 3, 15];
+P_VALUE_THRESHOLD = 0.05; % Defined for print output context
 
 % --- 1. Load Analysis Results File ---
 fprintf('Loading analysis results...\n');
@@ -24,6 +27,7 @@ try
 catch
     startPath = pwd;
 end
+
 [fileName, pathName] = uigetfile(fullfile(startPath, '*.mat'), 'Select the stepwise_analysis_results.mat file');
 if isequal(fileName, 0), disp('User selected Cancel.'); return; end
 load(fullfile(pathName, fileName));
@@ -31,6 +35,8 @@ load(fullfile(pathName, fileName));
 % --- 2. Tally Parameter Significance and Strength ---
 nSetpoints = length(analysis_results);
 all_predictors = initial_predictors;
+
+% Initialize count table
 predictor_counts = table('Size', [length(all_predictors), 5], ...
                          'VariableTypes', {'cell', 'double', 'double', 'double', 'double'}, ...
                          'VariableNames', {'Parameter', 'ErrorModelCount', 'LeakageModelCount', 'Sum_Abs_tStat_Error', 'Sum_Abs_tStat_Leakage'});
@@ -40,8 +46,11 @@ predictor_counts.LeakageModelCount = zeros(height(predictor_counts), 1);
 predictor_counts.Sum_Abs_tStat_Error = zeros(height(predictor_counts), 1);
 predictor_counts.Sum_Abs_tStat_Leakage = zeros(height(predictor_counts), 1);
 
+% Loop through setpoints
 for i = 1:nSetpoints
     sp_result = analysis_results{i};
+    
+    % Process Error Model
     if ~isempty(sp_result.ErrorModel)
         mdl = sp_result.ErrorModel;
         surviving_predictors = mdl.PredictorNames;
@@ -55,6 +64,8 @@ for i = 1:nSetpoints
             end
         end
     end
+    
+    % Process Leakage Model
     if ~isempty(sp_result.LeakageModel)
         mdl = sp_result.LeakageModel;
         surviving_predictors = mdl.PredictorNames;
@@ -70,21 +81,37 @@ for i = 1:nSetpoints
     end
 end
 
+% Calculate Totals and Averages
 num_error_models = sum(cellfun(@(x) ~isempty(x.ErrorModel), analysis_results));
 num_leakage_models = sum(cellfun(@(x) ~isempty(x.LeakageModel), analysis_results));
-if num_error_models > 0, predictor_counts.ErrorModelPercent = (predictor_counts.ErrorModelCount / num_error_models) * 100; else, predictor_counts.ErrorModelPercent = zeros(height(predictor_counts),1); end
-if num_leakage_models > 0, predictor_counts.LeakageModelPercent = (predictor_counts.LeakageModelCount / num_leakage_models) * 100; else, predictor_counts.LeakageModelPercent = zeros(height(predictor_counts),1); end
+
+if num_error_models > 0
+    predictor_counts.ErrorModelPercent = (predictor_counts.ErrorModelCount / num_error_models) * 100;
+else
+    predictor_counts.ErrorModelPercent = zeros(height(predictor_counts),1);
+end
+
+if num_leakage_models > 0
+    predictor_counts.LeakageModelPercent = (predictor_counts.LeakageModelCount / num_leakage_models) * 100;
+else
+    predictor_counts.LeakageModelPercent = zeros(height(predictor_counts),1);
+end
+
 predictor_counts.Avg_Abs_tStat_Error = predictor_counts.Sum_Abs_tStat_Error ./ predictor_counts.ErrorModelCount;
 predictor_counts.Avg_Abs_tStat_Leakage = predictor_counts.Sum_Abs_tStat_Leakage ./ predictor_counts.LeakageModelCount;
+
+% Handle NaNs (divide by zero)
 predictor_counts.Avg_Abs_tStat_Error(isnan(predictor_counts.Avg_Abs_tStat_Error)) = 0;
 predictor_counts.Avg_Abs_tStat_Leakage(isnan(predictor_counts.Avg_Abs_tStat_Leakage)) = 0;
 
-% --- 3. Display Final Report ---
+% --- 3. Display Final Report (Text) ---
 fprintf('\n===================================================================\n');
 fprintf('           OVERALL PARAMETER SENSITIVITY REPORT\n');
 fprintf('===================================================================\n');
 fprintf('Significance is defined as a parameter remaining in the final\n');
 fprintf('model after backward elimination (p <= %.2f).\n\n', P_VALUE_THRESHOLD);
+
+% Text Report is still useful to see sorted by Error for one section
 sorted_error = sortrows(predictor_counts, 'ErrorModelCount', 'descend');
 fprintf('--- Significance in PREDICTING ERROR SCORE ---\n');
 fprintf('%-22s | %-16s | %s\n', 'Parameter', 'Significant In...', 'Avg Strength');
@@ -93,6 +120,7 @@ for i = 1:height(sorted_error)
     row = sorted_error(i,:);
     fprintf('%-22s | %2d / %2d models (%3.0f%%) | Avg |tStat| = %5.2f\n', strrep(row.Parameter{1}, '_', ' '), row.ErrorModelCount, num_error_models, row.ErrorModelPercent, row.Avg_Abs_tStat_Error);
 end
+
 sorted_leakage = sortrows(predictor_counts, 'LeakageModelCount', 'descend');
 fprintf('\n--- Significance in PREDICTING LEAKAGE SCORE ---\n');
 fprintf('%-22s | %-16s | %s\n', 'Parameter', 'Significant In...', 'Avg Strength');
@@ -103,46 +131,61 @@ for i = 1:height(sorted_leakage)
 end
 fprintf('\n');
 
-% --- 4. Generate Summary Plot ---
-plot_data = sorted_error; 
+% --- 4. Generate Summary Plots (Split & Sorted by Leakage Strength) ---
+
+% SORTING LOGIC: Sort primarily by Leakage Strength (Avg_Abs_tStat_Leakage)
+plot_data = sortrows(predictor_counts, 'Avg_Abs_tStat_Leakage', 'descend');
+
 if HIDE_ZERO_SIGNIFICANCE_PARAMS_IN_PLOT
     rows_to_keep = (plot_data.ErrorModelCount > 0) | (plot_data.LeakageModelCount > 0);
     plot_data = plot_data(rows_to_keep, :);
-    fprintf('NOTE: Plot is filtered to show only the %d parameters that were significant in at least one model.\n\n', height(plot_data));
+    fprintf('NOTE: Plots filtered to show only %d parameters significant in at least one model.\n', height(plot_data));
 end
+
 if ~isempty(plot_data)
-    figure('Name', 'Overall Parameter Significance Summary', 'Position', [200, 200, 1200, 600]);
-    t = tiledlayout(1, 2);
     num_plot_params = height(plot_data);
-    ax1 = nexttile;
-    [~, reorder_idx] = ismember(plot_data.Parameter, sorted_leakage.Parameter);
-    bar_data_freq = [plot_data.ErrorModelPercent, sorted_leakage.LeakageModelPercent(reorder_idx)];
-    bar(ax1, bar_data_freq, 'grouped');
-    ax1.XTick = 1:num_plot_params;
-    set(ax1, 'XTickLabel', strrep(plot_data.Parameter, '_', ' '));
-    xtickangle(ax1, 45);
-    title(ax1, 'Frequency of Significance', 'FontSize', 14);
-    ylabel(ax1, 'Significant in X% of Models');
-    legend(ax1, 'Error Score Models', 'Leakage Score Models', 'Location', 'northeast');
-    grid(ax1, 'on');
-    ax2 = nexttile;
-    bar_data_strength = [plot_data.Avg_Abs_tStat_Error, sorted_leakage.Avg_Abs_tStat_Leakage(reorder_idx)];
-    bar(ax2, bar_data_strength, 'grouped');
-    ax2.XTick = 1:num_plot_params;
-    set(ax2, 'XTickLabel', strrep(plot_data.Parameter, '_', ' '));
-    xtickangle(ax2, 45);
-    title(ax2, 'Average Strength of Effect (when significant)', 'FontSize', 14);
-    ylabel(ax2, 'Average |t-statistic|');
-    legend(ax2, 'Error Score Models', 'Leakage Score Models', 'Location', 'northeast');
-    grid(ax2, 'on');
-    sgtitle('Overall Parameter Significance Summary', 'FontSize', 16, 'FontWeight', 'bold');
+    param_labels = strrep(plot_data.Parameter, '_', ' ');
+
+    % --- FIGURE 1: Frequency of Significance ---
+    fig1 = figure('Name', 'Overall Significance Frequency', 'Position', [100, 200, 1000, 500]);
+    bar_data_freq = [plot_data.ErrorModelPercent, plot_data.LeakageModelPercent];
+    
+    b1 = bar(bar_data_freq, 'grouped');
+    set(gca, 'XTick', 1:num_plot_params, 'XTickLabel', param_labels);
+    xtickangle(45);
+    title('Frequency of Significance (Sorted by Leakage Strength)', 'FontSize', 14);
+    ylabel('Significant in X% of Models');
+    legend('Wrench Error', 'Leakage', 'Location', 'northeast'); % UPDATED LEGEND
+    grid on;
+    
+    % Save Figure 1
+    save_path_freq = fullfile(pathName, 'Summary_Frequency.fig');
+    savefig(fig1, save_path_freq);
+    fprintf('Saved Frequency Plot to: %s\n', save_path_freq);
+
+    % --- FIGURE 2: Average Strength ---
+    fig2 = figure('Name', 'Overall Average Strength', 'Position', [150, 150, 1000, 500]);
+    bar_data_strength = [plot_data.Avg_Abs_tStat_Error, plot_data.Avg_Abs_tStat_Leakage];
+    
+    b2 = bar(bar_data_strength, 'grouped');
+    set(gca, 'XTick', 1:num_plot_params, 'XTickLabel', param_labels);
+    xtickangle(45);
+    title('Average Strength of Effect (Sorted by Leakage Strength)', 'FontSize', 14);
+    ylabel('Average |t-statistic|');
+    legend('Wrench Error', 'Leakage', 'Location', 'northeast'); % UPDATED LEGEND
+    grid on;
+
+    % Save Figure 2
+    save_path_str = fullfile(pathName, 'Summary_Strength.fig');
+    savefig(fig2, save_path_str);
+    fprintf('Saved Strength Plot to: %s\n', save_path_str);
 end
 
 % --- 5. (Optional) Generate Detailed Model Coefficient Plots ---
 if GENERATE_MODEL_PLOTS
-    fprintf('Generating detailed coefficient plots for specified setpoints...\n');
+    fprintf('\nGenerating detailed coefficient plots for specified setpoints...\n');
     
-    plot_folder = fullfile(pathName, 'Coefficient_Plots');
+    plot_folder = fullfile(pathName, 'Coefficient_Plots_v63');
     if ~exist(plot_folder, 'dir'), mkdir(plot_folder); end
     
     for sp_to_plot = SETPOINTS_TO_PLOT
@@ -150,18 +193,29 @@ if GENERATE_MODEL_PLOTS
             warning('Setpoint #%d is out of range. Skipping plot.', sp_to_plot);
             continue;
         end
+        
         sp_result = analysis_results{sp_to_plot};
         fig = figure('Name', sprintf('Coefficient Plot for Setpoint #%d', sp_to_plot), 'Position', [300, 300, 800, 700]);
+        
         t = tiledlayout(2, 1, 'TileSpacing', 'compact');
+        
+        % Plot Wrench Error
         ax1 = nexttile;
-        plotCoefficients(sp_result.ErrorModel, ax1, 'Error Score');
+        plotCoefficients(sp_result.ErrorModel, ax1, 'Wrench Error Score');
+        
+        % Plot Leakage
         ax2 = nexttile;
         plotCoefficients(sp_result.LeakageModel, ax2, 'Leakage Score');
+        
         sgtitle(sprintf('Final Model Coefficients for Setpoint #%d: [%s]', ...
             sp_to_plot, num2str(sp_result.SetpointVector)), 'FontSize', 14, 'FontWeight', 'bold');
+        
+        % Save as Image (PNG) for quick viewing
         saveas(fig, fullfile(plot_folder, sprintf('Coefficients_SP%02d.png', sp_to_plot)));
+        % Save as FIG for editing
+        savefig(fig, fullfile(plot_folder, sprintf('Coefficients_SP%02d.fig', sp_to_plot)));
     end
-    fprintf('Coefficient plots saved to folder: %s\n', plot_folder);
+    fprintf('Detailed coefficient plots saved to folder: %s\n', plot_folder);
 end
 
 % --- Helper function for plotting coefficients ---
@@ -174,28 +228,35 @@ function plotCoefficients(mdl, ax, model_title)
     end
     
     coeffs = mdl.Coefficients;
-    coeffs = coeffs(2:end, :); 
+    
+    % Remove Intercept if present (usually the first row)
+    if strcmp(coeffs.Properties.RowNames{1}, '(Intercept)')
+        coeffs = coeffs(2:end, :);
+    end
     
     if height(coeffs) == 0
         title(ax, [model_title, ': No significant predictors found']);
         return;
     end
-
+    
+    % Sort by Estimate Magnitude for the detailed plot
     [~, sort_idx] = sort(abs(coeffs.Estimate), 'ascend');
     coeffs = coeffs(sort_idx, :);
-
+    
     param_names = strrep(coeffs.Properties.RowNames, '_', ' ');
     y_cats = categorical(param_names, param_names); 
     
     estimates = coeffs.Estimate;
     
-    % --- FIXED: Use the robustl coefCI() function ---
+    % Robust Confidence Intervals
     ci_matrix = coefCI(mdl);
-    ci_predictors = ci_matrix(2:end, :); % Exclude intercept
-    ci_predictors_sorted = ci_predictors(sort_idx, :); % Apply same sort order
+    % Remove intercept from CI matrix
+    ci_predictors = ci_matrix(2:end, :); 
+    
+    % Reorder CI to match sorted coefficients
+    ci_predictors_sorted = ci_predictors(sort_idx, :); 
     ci_lower = ci_predictors_sorted(:, 1);
     ci_upper = ci_predictors_sorted(:, 2);
-    % ---------------------------------------------
     
     err_lower = estimates - ci_lower;
     err_upper = ci_upper - estimates;
