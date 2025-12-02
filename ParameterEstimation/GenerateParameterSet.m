@@ -8,11 +8,11 @@ clear; clc; close all;
 %% --- 1. USER CONFIGURATION ----------------------------------------------
 
 % Output Settings
-NUM_SAMPLES = 1;                % How many datasets to generate
+NUM_SAMPLES = 50;                % How many datasets to generate
 run('ParameterEstimationBase.m'); %must be here because it gets projectRoot
 Uav.COM = [0 0 0];
-OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSetCOMZ');
-FILE_PREFIX = 'ParamSetCOM_';       % Filename format (e.g., ParamSet_001.mat)
+OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSet');
+FILE_PREFIX = 'ParamSet_';       % Filename format (e.g., ParamSet_001.mat)
 
 % Distribution Configuration
 % Format: {Struct, Field, Distribution, Value}
@@ -20,24 +20,24 @@ FILE_PREFIX = 'ParamSetCOM_';       % Filename format (e.g., ParamSet_001.mat)
 %            For COM, this is Absolute Meters (e.g., [0.001, 0.001, 0.03]).
 VARIATION_CONFIG = {
     % Name     Field          Dist       Value (%, or Abs for COM)
-    'Motor',   'K_V',         'normal',  0.0;
-    'Motor',   'K_E',         'normal',  0.0;
-    'Motor',   'C_TAU',       'normal',  0.0;
-    'Motor',   'B',           'normal',  0.0;
-    'Motor',   'Volt_offset', 'uniform', 0.0;
-    'Motor',   'volt_slope',  'uniform', 0.0;
-    'Motor',   'R',           'normal',  0.0;
-    'Motor',   'I_0',         'normal',  0.0;
-    'Uav',     'D_UAV',       'normal',  0.0;
-    'Uav',     'D_PROP',      'normal',  0.0;
-    'Uav',     'M',           'normal',  0.0;
-    'Uav',     'I',           'normal',  0.0;
-    'Uav',     'RHO_AIR',     'normal',  0.0;
-    'Uav',     'R_PROP',      'normal',  0.0;
-    'Uav',     'A_UAV',       'normal',  0.0;
-    'Uav',     'A_PROP',      'normal',  0.0;
-    'Uav',     'ZETA',        'normal',  0.0;
-    'Uav',     'COM',         'normal',  [0.000, 0.000, 0.1]; % [X Y Z] Absolute Sigma (m)
+    'Motor',   'K_V',         'normal',  3.0;
+    'Motor',   'K_E',         'normal',  3.0;
+    'Motor',   'C_TAU',       'normal',  3.0;
+    'Motor',   'B',           'normal',  1.0;
+    'Motor',   'Volt_offset', 'uniform', 2.0;
+    'Motor',   'volt_slope',  'uniform', 2.0;
+    'Motor',   'R',           'normal',  5.0;
+    'Motor',   'I_0',         'normal',  10.0;
+    'Uav',     'D_UAV',       'normal',  0.5;
+    'Uav',     'D_PROP',      'normal',  1.0;
+    'Uav',     'M',           'normal',  2.0;
+    'Uav',     'I',           'normal',  5.0;
+    'Uav',     'RHO_AIR',     'normal',  10.0;
+    'Uav',     'R_PROP',      'normal',  1.0;
+    'Uav',     'A_UAV',       'normal',  0.5;
+    'Uav',     'A_PROP',      'normal',  1.0;
+    'Uav',     'ZETA',        'normal',  5.0;
+    'Uav',     'COM',         'normal',  [0.001, 0.001, 0.03]; % [X Y Z] Absolute Sigma (m)
 };
 
 %% --- 2. INITIALIZE BASELINE (NOMINAL) -----------------------------------
