@@ -5,10 +5,10 @@
 %
 % DOMAIN: 
 %   Linear Acceleration (m/s^2) and Angular Acceleration (rad/s^2).
-%   Note: This isolates the actuator contribution (Gravity is removed).
+%   Note: Comparison uses DIRECT RECORDED ACCELERATION as truth.
 %
 % Comparison:
-%   - True: Real_Wrench / Mass & Inertia
+%   - True: simOut.UKFData.Real_Accel (Recorded Truth)
 %   - Nominal: (B_nom * w^2) / Mass & Inertia
 %   - UKF: (B_ukf * w^2) / Mass & Inertia
 %   - RLS: Direct Output (Kinematic Estimation)
@@ -19,7 +19,6 @@ clear; clc; close all;
 % FLAGS
 PLOT_UKF_DATA = false;   
 PLOT_RLS_DATA = true;   
-
 RLS_SAMPLE_TIME = 50.0; 
 TRIM_SECONDS = 5.0;     
 
@@ -38,6 +37,7 @@ try
 catch
     startPath = pwd;
 end
+
 [ukfFileName, ukfPath] = uigetfile(fullfile(startPath, 'estimation_*.mat'), 'Select UKF File');
 if isequal(ukfFileName, 0), disp('Cancelled.'); return; end
 ukfFullFile = fullfile(ukfPath, ukfFileName);
@@ -61,6 +61,7 @@ if PLOT_RLS_DATA
         rlsFullFile = fullfile(rlsPath, rlsFileName);
     end
 end
+
 fprintf('Processing: %s\n', ukfFileName);
 
 %% --- 2. Process Simulation Physics & Truth ---
@@ -76,22 +77,28 @@ N_ROTORS = S_ukf.Uav.N_ROTORS;
 
 fprintf('Sim Physics detected: Mass = %.2f kg, Rotors = %d\n', Uav_Mass, N_ROTORS);
 
-% 2.2 Process True Data (Wrench -> Acceleration)
+% 2.2 Process True Data (Directly from Recorded Acceleration)
 ukfData = S_ukf.simOut.UKFData;
 Omega = ukfData.Omega;
-Real_Wrench = ukfData.Real_Wrench; % [Fx Fy Fz Tx Ty Tz]
 
-% Convert True Wrench to True Acceleration (Kinematic Truth)
-% Linear: a = F / m
-True_Lin_Accel = Real_Wrench.Data(:, 1:3) / Uav_Mass;
+% Attempt to find the acceleration field
+if isfield(ukfData, 'Real_Accellerations')
+    % Standard name
+    True_Accel = ukfData.Real_Accellerations;
+    fprintf('Using truth source: ukfData.Real_Accel\n');
+else
+    % Fallback: If direct accel is missing, we revert to Wrench/Mass but warn user
+    warning('Real_Accel not found. Reverting to calculated acceleration (Wrench/Mass).');
+    Real_Wrench = ukfData.Real_Wrench;
+    Lin = Real_Wrench.Data(:, 1:3) / Uav_Mass;
+    Ang = (Uav_Inertia \ Real_Wrench.Data(:, 4:6)')';
+    True_Accel = timeseries([Lin, Ang], Real_Wrench.Time);
+end
 
-% Angular: alpha = inv(I) * tau
-% Note: We calculate alpha caused by MOTORS only to match RLS/Nominal definition
-True_Torque = Real_Wrench.Data(:, 4:6)'; % 3 x T
-True_Ang_Accel = (Uav_Inertia \ True_Torque)'; % (I^-1 * Tau)' -> T x 3
-
-True_Accel_Data = [True_Lin_Accel, True_Ang_Accel];
-True_Accel = timeseries(True_Accel_Data, Real_Wrench.Time);
+% Ensure True_Accel is 6-DOF (Linear + Angular)
+if size(True_Accel.Data, 2) < 6
+    warning('True_Accel has fewer than 6 columns. Check your data structure.');
+end
 
 %% --- 3. Process Nominal Model (Force -> Accel) ---
 B_nom = S_ukf.B_matrix_nominal; % N/rad^2
@@ -140,6 +147,8 @@ if PLOT_RLS_DATA
     
     % Find Sample Index
     [~, time_idx] = min(abs(rlsData.MotorParams.Time - RLS_SAMPLE_TIME));
+    
+    % Safety check for end of simulation
     if rlsData.MotorParams.Time(end) < (RLS_SAMPLE_TIME - 1.0)
         time_idx = length(rlsData.MotorParams.Time);
     end
@@ -168,6 +177,7 @@ if PLOT_RLS_DATA, start_times(end+1)=Accel_RLS.Time(1); end_times(end+1)=Accel_R
 
 t_start = max(start_times) + TRIM_SECONDS;
 t_end   = min(end_times) - TRIM_SECONDS;
+
 time_vec = True_Accel.Time;
 mask = (time_vec >= t_start) & (time_vec <= t_end);
 t_plot = time_vec(mask);
@@ -204,6 +214,7 @@ fprintf('===========================================================\n');
 fprintf('%-10s | %-12s | %-12s | %-12s\n', 'AXIS', 'NOMINAL', 'RLS', 'IMPROVEMENT');
 fprintf('-----------------------------------------------------------\n');
 labels_short = {'a_x', 'a_y', 'a_z', 'alpha_x', 'alpha_y', 'alpha_z'};
+
 for k = 1:6
     if PLOT_RLS_DATA
         fprintf('%-10s | %-12.4f | %-12.4f | %+.2f%%\n', ...
@@ -222,13 +233,13 @@ else
 end
 fprintf('===========================================================\n\n');
 
-
 % --- PLOTTING ---
 labels = {'a_x (m/s^2)', 'a_y (m/s^2)', 'a_z (m/s^2)', '\alpha_x (rad/s^2)', '\alpha_y (rad/s^2)', '\alpha_z (rad/s^2)'};
 
 % Figure 1: Acceleration Comparison
 figure('Name', 'Acceleration Estimation Comparison', 'Position', [100 100 1200 800]);
 t = tiledlayout(2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
+
 for k = 1:6
     nexttile;
     plot(t_plot, a_real(:, k), 'k-', 'LineWidth', 1.5, 'DisplayName', 'True'); hold on;
@@ -255,7 +266,6 @@ title(t, sprintf('Acceleration Estimation (Mass=%.2fkg)', Uav_Mass), 'Interprete
 % Figure 2: Errors
 figure('Name', 'Acceleration Errors', 'Position', [150 150 1200 800]);
 t2 = tiledlayout(2, 3, 'TileSpacing', 'compact', 'Padding', 'compact');
-
 for k = 1:6
     nexttile;
     yline(0, 'k-', 'Alpha', 0.3); hold on;
@@ -269,4 +279,73 @@ for k = 1:6
     if k == 1, legend('Location', 'best'); end
 end
 title(t2, 'Acceleration Errors (True - Estimated)');
+
+%% --- 7. Plot RLS Parameter Convergence ---
+if PLOT_RLS_DATA
+    % Configuration for Convergence Plot
+    CONV_TRUNCATE_TIME = RLS_SAMPLE_TIME + 2.0; 
+    Y_LIMIT_LOOKBACK = 1.0; % Look at the last 1 second to determine Y-scale
+    
+    % Access raw Force Effectiveness Data [3 x N_Rotors x Time]
+    % Row 1 = X-axis specific force (N / rad^2 per rotor)
+    rls_time_all = rlsData.ForceEffectiveness.Time;
+    
+    % Create Mask to truncate data shortly after sample time
+    mask_conv = rls_time_all <= CONV_TRUNCATE_TIME;
+    t_conv = rls_time_all(mask_conv);
+    
+    % Extract X-Axis data for all rotors (Row 1)
+    % Resulting Size: [N_ROTORS x Time_Steps]
+    raw_data_x = rlsData.ForceEffectiveness.Data(1, 1:N_ROTORS, mask_conv);
+    x_param_hist = squeeze(raw_data_x); 
+    
+    % Correct dimensions if squeeze rotated it (specifically for single rotor case)
+    if N_ROTORS == 1 && size(x_param_hist, 1) > 1
+        x_param_hist = x_param_hist'; 
+    end
+    
+    % Visualization
+    figure('Name', 'RLS Convergence: X-Axis Thrust', 'Position', [200 200 800 400]);
+    plot(t_conv, x_param_hist, 'LineWidth', 1.5); hold on;
+    
+    % Add Sample Time Line
+    xline(RLS_SAMPLE_TIME, 'r--', 'Sampling Point', 'LabelVerticalAlignment', 'bottom', 'LineWidth', 1.5);
+    
+    % --- DYNAMIC Y-SCALING LOGIC ---
+    % Find the indices corresponding to the last few seconds (steady state)
+    idx_tail = t_conv >= (t_conv(end) - Y_LIMIT_LOOKBACK);
+    
+    if any(idx_tail)
+        % Get data only from the "settled" region
+        data_tail = x_param_hist(:, idx_tail);
+        
+        % Calculate Min/Max of the tail
+        y_min = min(data_tail(:));
+        y_max = max(data_tail(:));
+        
+        % Add 20% padding so lines aren't touching the plot edges
+        y_range = y_max - y_min;
+        if y_range == 0, y_range = abs(y_max) * 0.1; end % Handle flat lines
+        if y_range == 0, y_range = 1.0; end % Handle pure zero lines
+        
+        padding = 0.2 * y_range;
+        ylim([y_min - padding, y_max + padding]);
+    end
+    % -------------------------------
+    
+    % Styling
+    grid on;
+    xlabel('Time (s)');
+    ylabel('Effectiveness (X-Force)');
+    title(sprintf('RLS Convergence: X-Axis Specific Force (Scaled to Final Values)'));
+    
+    % Create Legend
+    leg_str = cell(1, N_ROTORS);
+    for i = 1:N_ROTORS
+        leg_str{i} = sprintf('Rotor %d', i);
+    end
+    legend(leg_str, 'Location', 'best');
+    xlim([0, CONV_TRUNCATE_TIME]);
+end
+
 fprintf('Plotting Complete.\n');

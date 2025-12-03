@@ -16,7 +16,7 @@ function runSimulationVariedFcnUKF(sampleIndex)
         projectRoot = pwd; 
     end
     
-    folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
+    folderName = 'ParameterSetCOMZ'; % Folder name from GenerateParameterSets.m
     dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
     
     % Construct filename
@@ -74,7 +74,7 @@ function runSimulationVariedFcnUKF(sampleIndex)
     
     % Include SampleIndex in the filename for easy tracking
     outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParams2');
+    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParamsCOMZ');
     
     % Simulation Input Object
     simIn = Simulink.SimulationInput(modelName);

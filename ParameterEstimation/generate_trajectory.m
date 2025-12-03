@@ -49,8 +49,8 @@ pos_amp_z = 0.025;
 
 % Frequencies [Hz] - Ratios are important for Lissajous shapes
 pos_freq_x = 0.1;
-pos_freq_y = 0.15;
-pos_freq_z = 0.2;
+pos_freq_y = 0.09;
+pos_freq_z = 0.15;
 
 % Phase Offsets [rad]
 pos_phase_x = 0;
@@ -59,14 +59,14 @@ pos_phase_z = pi/4;
 
 % --- Rotational Trajectory Parameters (roll, pitch, yaw) ---
 % Amplitudes [rad] - Keep roll and pitch angles modest to be realistic
-rot_amp_roll  = 0.3*pi/64; % +/- 2 degrees
-rot_amp_pitch = 0.3*pi/64; % +/- 2 degrees
-rot_amp_yaw   = 0.3*pi/64;  % +/- 2 degrees
+rot_amp_roll  = 0.9*pi/64; % +/- 2 degrees
+rot_amp_pitch = 0.9*pi/64; % +/- 2 degrees
+rot_amp_yaw   = 0.9*pi/64;  % +/- 2 degrees
 
 % Frequencies [Hz] - Generally higher than position frequencies
-rot_freq_roll  = 0.25;
-rot_freq_pitch = 0.275;
-rot_freq_yaw   = 0.125;
+rot_freq_roll  = 0.2;
+rot_freq_pitch = 0.18;
+rot_freq_yaw   = 0.1;
 
 % Phase Offsets [rad]
 rot_phase_roll  = 0;

@@ -125,3 +125,5 @@ RLS_INITIAL_GUESS.force = (Uav.M \ B_force_nominal)'; % B_force_nominal is [3, n
 % The RLS block only estimates effectiveness related to omega^2, so we only use B_torque_nominal
 % Fix: Ensure the input size is (3 x n), matching your expected [3, 8] input
 RLS_INITIAL_GUESS.torque = (Uav.I \ B_torque_nominal)'; % B_torque_nominal is [3, n], so this is [3, n]
+
+RLS_INITIAL_GUESS.nullspace = null([RLS_INITIAL_GUESS.force,RLS_INITIAL_GUESS.torque]');
