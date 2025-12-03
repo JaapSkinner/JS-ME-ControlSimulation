@@ -19,7 +19,7 @@ if ~exist('projectRoot', 'var')
     projectRoot = pwd; 
 end
 
-folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
+folderName = 'ParameterSetCOMZ'; % Folder name from GenerateParameterSets.m
 dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
 
 % Construct filename
@@ -74,7 +74,7 @@ tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
 
 % Include SampleIndex in the filename for easy tracking
 outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParams');
+outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParamsCOMZ3');
 
 % Simulation Input Object
 simIn = Simulink.SimulationInput(modelName);

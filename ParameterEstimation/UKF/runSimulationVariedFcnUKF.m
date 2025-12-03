@@ -9,14 +9,14 @@ function runSimulationVariedFcnUKF(sampleIndex)
 
     %% 1. Environment Setup
     % Note: We cannot use 'clearvars' here because it would wipe 'sampleIndex'
-    run('ParameterEstimationBase.m');
+    run('UKFBase.m');
 
     % Ensure projectRoot is defined (fallback to pwd if missing)
     if ~exist('projectRoot', 'var')
         projectRoot = pwd; 
     end
     
-    folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
+    folderName = 'ParameterSetCOMZ'; % Folder name from GenerateParameterSets.m
     dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
     
     % Construct filename
@@ -74,7 +74,7 @@ function runSimulationVariedFcnUKF(sampleIndex)
     
     % Include SampleIndex in the filename for easy tracking
     outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParams');
+    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParamsCOMZ3');
     
     % Simulation Input Object
     simIn = Simulink.SimulationInput(modelName);

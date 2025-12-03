@@ -11,7 +11,7 @@ clear; clc; close all;
 NUM_SAMPLES = 50;                % How many datasets to generate
 run('ParameterEstimationBase.m'); %must be here because it gets projectRoot
 Uav.COM = [0 0 0];
-OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSet');
+OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSet2');
 FILE_PREFIX = 'ParamSet_';       % Filename format (e.g., ParamSet_001.mat)
 
 % Distribution Configuration
