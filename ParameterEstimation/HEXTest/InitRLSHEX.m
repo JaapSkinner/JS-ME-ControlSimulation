@@ -126,4 +126,4 @@ RLS_INITIAL_GUESS.force = (Uav.M \ B_force_nominal)'; % B_force_nominal is [3, n
 % Fix: Ensure the input size is (3 x n), matching your expected [3, 8] input
 RLS_INITIAL_GUESS.torque = (Uav.I \ B_torque_nominal)'; % B_torque_nominal is [3, n], so this is [3, n]
 
-RLS_INITIAL_GUESS.nullspace = null(B_matrix_nominal);
+RLS_INITIAL_GUESS.nullspace = null([RLS_INITIAL_GUESS.force,RLS_INITIAL_GUESS.torque]');

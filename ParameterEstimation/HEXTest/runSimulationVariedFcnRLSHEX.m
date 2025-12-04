@@ -1,4 +1,4 @@
-function runSimulationVariedFcnRLS(sampleIndex)
+function runSimulationVariedFcnRLSHEX(sampleIndex)
 %% Parameter Sweep - Script Version
 
 % % Configure these inputs manually
@@ -12,14 +12,14 @@ function runSimulationVariedFcnRLS(sampleIndex)
 % varianceList = [35; 35; 35; 35; 35];  % Only vary K_V by 20%
 
 %% 1. Environment Setup
-run('RLSBase.m');
+run('RLSBaseHEX.m');
 
 % Ensure projectRoot is defined (fallback to pwd if missing)
 if ~exist('projectRoot', 'var')
     projectRoot = pwd; 
 end
 
-folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
+folderName = 'ParameterSetHEX'; % Folder name from GenerateParameterSets.m
 dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
 
 % Construct filename
@@ -34,10 +34,10 @@ end
 %% 2. Initialize Base Simulation Environment
 % Run the standard initialization to get the environment ready.
 % This sets up the default paths, buses, and constants.
-run('InitUKF.m') % Innit UKF before varying parameters
-run('InitRLS.m');
+run('InitUKFHEX.m') % Innit UKF before varying parameters
+run('InitRLSHEX.m');
 
-[multisine, sineT, ~] = generate_orthogonal_multisine(8, 15, 0.1, 1.0, 100);
+[multisine, sineT, ~] = generate_orthogonal_multisine(6, 15, 0.1, 1.0, 100);
 multisinesignal = [sineT,multisine];
 
 %% 3. Load & Apply Pre-Generated Parameters
@@ -74,7 +74,7 @@ tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
 
 % Include SampleIndex in the filename for easy tracking
 outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParams5');
+outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParamsHEX');
 
 % Simulation Input Object
 simIn = Simulink.SimulationInput(modelName);

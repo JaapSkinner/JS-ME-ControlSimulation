@@ -8,10 +8,10 @@ clear; clc; close all;
 %% --- 1. USER CONFIGURATION ----------------------------------------------
 
 % Output Settings
-NUM_SAMPLES = 50;                % How many datasets to generate
-run('ParameterEstimationBase.m'); %must be here because it gets projectRoot
+NUM_SAMPLES = 1;                % How many datasets to generate
+run('RLSBaseHEX.m'); %must be here because it gets projectRoot
 Uav.COM = [0 0 0];
-OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSet2');
+OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSetPHEX');
 FILE_PREFIX = 'ParamSet_';       % Filename format (e.g., ParamSet_001.mat)
 
 % Distribution Configuration
@@ -45,8 +45,8 @@ fprintf('Initializing Nominal Plant and B Matrix...\n');
 
 % Run standard initialization to get Uav, Motor, and B_matrix_nominal
 try
-    run('InitUKF.m'); 
-    run('InitRLS.m');
+    run('InitUKFHEX.m'); 
+    run('InitRLSHEX.m');
     % run('mlebusgen.m'); % Run if needed to finalize structures
 catch
     error('Could not run initialization scripts. Check path.');
