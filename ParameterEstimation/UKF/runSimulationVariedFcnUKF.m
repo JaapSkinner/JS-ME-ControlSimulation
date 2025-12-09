@@ -74,7 +74,7 @@ function runSimulationVariedFcnUKF(sampleIndex)
     
     % Include SampleIndex in the filename for easy tracking
     outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParams5');
+    outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'UKFDataFixedParams6');
     
     % Simulation Input Object
     simIn = Simulink.SimulationInput(modelName);

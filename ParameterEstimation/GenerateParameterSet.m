@@ -11,7 +11,7 @@ clear; clc; close all;
 NUM_SAMPLES = 1;                % How many datasets to generate
 run('RLSBaseHEX.m'); %must be here because it gets projectRoot
 Uav.COM = [0 0 0];
-OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSetPHEX');
+OUTPUT_DIR  = fullfile(projectRoot, 'ParameterEstimation', 'ParameterSetHEX');
 FILE_PREFIX = 'ParamSet_';       % Filename format (e.g., ParamSet_001.mat)
 
 % Distribution Configuration

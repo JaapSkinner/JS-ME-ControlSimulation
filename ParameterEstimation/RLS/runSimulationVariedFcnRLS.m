@@ -74,7 +74,7 @@ tStr = datestr(now,'yyyy-mm-dd_HH-MM-SS');
 
 % Include SampleIndex in the filename for easy tracking
 outputFile = sprintf('%s_Sample%03d_%s_%s', testCase, sampleIndex, uavType, tStr);
-outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParams5');
+outputFolder = fullfile(projectRoot, 'Results', 'ParameterEstimation', 'RLSDataFixedParams6');
 
 % Simulation Input Object
 simIn = Simulink.SimulationInput(modelName);

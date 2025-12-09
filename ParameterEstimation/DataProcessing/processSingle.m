@@ -13,7 +13,7 @@ clear; clc; close all;
 
 %% --- CONFIGURATION ---
 % FLAGS: Enable/Disable specific data plots
-PLOT_UKF_DATA = true;   % Set true to plot UKF data
+PLOT_UKF_DATA = false;   % Set true to plot UKF data
 PLOT_RLS_DATA = true;   % Set true to plot RLS data (and select RLS file)
 RLS_SAMPLE_TIME = 17.0; % Time in seconds to sample the RLS data
 TRIM_SECONDS = 5.0;     % For plotting: trim start/end artifacts
