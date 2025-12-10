@@ -6,9 +6,10 @@ n_dynamics = 13 + Uav.N_ROTORS; % add N_ROTORS to the state to hold OMEGA
 N_MOTORS = Uav.N_ROTORS;
 
 n_params_eff = 6 * N_MOTORS; % 3 for force (Fx,Fy,Fz), 3 for torque (Tx,Ty,Tz) per motor
-n_params_motors = 3 * N_MOTORS; % Gain_u, Coeff_omega, Coeff_omega_sq per motor
+n_params_motors = 4 * N_MOTORS; % Gain_u, Coeff_omega, Coeff_omega_sq per motor, Bias
 n_params = n_params_eff + n_params_motors;
 n_total = n_dynamics + n_params; % Will be 93 for an 8-rotor UAV
+
 
 %% 2. Initial Guesses for Parameters
 % Our initial guess for the effectiveness matrix is the B-matrix derived
@@ -38,9 +39,24 @@ Gain_u_nom = (Kt_nom * mv_nom) / (Irzz_nom * R_nom);
 Coeff_omega_nom = (Kt_nom * Ke_nom) / (Irzz_nom * R_nom);
 Coeff_omega_sq_nom = Ctau_nom / Irzz_nom;
 
+Kt   = Motor.K_T(1);
+R    = Motor.R(1);
+Irzz = Motor.I_R_ZZ(1);
+V_off = Motor.Volt_offset(1);
+I0    = Motor.I_0(1);
+
+% 1. Net Voltage that exists at 0 PWM
+V_net_static = V_off - (I0 * R);
+
+% 2. Convert Volts -> Torque -> Acceleration
+% Accel = (Kt / (R * Inertia)) * Voltage
+Bias_nom = (Kt / (R * Irzz)) * V_net_static;
+
+
 INITIAL_GUESS.motor_gain_u = repmat(Gain_u_nom, N_MOTORS, 1);
 INITIAL_GUESS.motor_coeff_w = repmat(Coeff_omega_nom, N_MOTORS, 1);
 INITIAL_GUESS.motor_coeff_w2 = repmat(Coeff_omega_sq_nom, N_MOTORS, 1);
+INITIAL_GUESS.motor_bias = repmat(Bias_nom, N_MOTORS, 1);
 
 %% 3. UKF Block Parameters
 % --- Initial State (x0) ---
@@ -53,6 +69,7 @@ UKF.InitialState(jk: 13+7*N_MOTORS) = INITIAL_GUESS.effectiveness;
 UKF.InitialState(jk+6*N_MOTORS:13+8*N_MOTORS) = INITIAL_GUESS.motor_gain_u;
 UKF.InitialState(jk+7*N_MOTORS:13+9*N_MOTORS) = INITIAL_GUESS.motor_coeff_w;
 UKF.InitialState(jk+8*N_MOTORS:13+10*N_MOTORS) = INITIAL_GUESS.motor_coeff_w2;
+UKF.InitialState(jk+9*N_MOTORS:13+11*N_MOTORS) = INITIAL_GUESS.motor_bias;
 
 % --- Initial Covariance (P0) ---
 P0_dyn_var   = 1e-6;
@@ -109,5 +126,7 @@ UKF.MeasurementNoise = diag(R_variances);
 UKF.Alpha = 1e-3;
 UKF.Beta  = 2;
 UKF.Kappa = 0;
+
+UKF.total_states = 13 + 11*N_MOTORS;
 
 disp('UKF parameters defined in workspace variable "UKF".');
