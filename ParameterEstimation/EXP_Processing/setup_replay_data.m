@@ -1,48 +1,101 @@
 %% Setup Replay Data (Data & Signal Processing)
 % Loads processed flight data and prepares it for Simulink Replay.
-% Call this script from your main run function.
+% Optimized for the new 'ulog_to_mat' structure (Guaranteed Q, RPY, Body Vel).
 
-% 1. Load Data (If not already provided in workspace)
+%% 1. LOAD DATA
 if ~exist('flightData', 'var')
-    if ispc; homeDir = getenv('USERPROFILE'); else; homeDir = getenv('HOME'); end
-    [fName, pPath] = uigetfile(fullfile(homeDir, '*.mat'), 'Select Processed Flight Data');
+    try; proj = currentProject; startPath = proj.RootFolder; catch; startPath = pwd; end
+    [fName, pPath] = uigetfile(fullfile(startPath, '*.mat'), 'Select Processed Flight Data');
     if isequal(fName,0); error('No data selected.'); end
     load(fullfile(pPath, fName));
 end
 
-% 2. Time Vector
+%% 2. TIME VECTOR
 t = flightData.time;
 sim_duration = t(end);
+fprintf('Data Loaded. Duration: %.2fs\n', sim_duration);
 
-% 3. Create Simulink Timeseries
-% Actuators (Normalized 0-1) - Connect to RLS Input
+%% 3. CREATE SIMULINK TIMESERIES
+
+% --- A. ACTUATORS ---
+% Normalized Motor Commands [0-1]
 ts_u_cmd = timeseries(flightData.actuators.cmd, t, 'Name', 'U_Cmd');
 
-% Sensor Data (Body Frame) - Connect to RLS Measurements
-ts_omega = timeseries(flightData.imu.gyro, t, 'Name', 'Gyro');
-ts_accel = timeseries(flightData.imu.accel, t, 'Name', 'Accel');
-
-% Ground Truth (For Validation Scope)
-if max(abs(flightData.mocap.pos(:))) > 0.1
-    ts_pos_truth = timeseries(flightData.mocap.pos, t, 'Name', 'Pos_Truth');
-    fprintf('Loaded Replay Data: Using MOCAP for Truth.\n');
+% Motor RPM (Actual Speed)
+if isfield(flightData.actuators, 'rpm')
+    ts_rpm = timeseries(flightData.actuators.rpm, t, 'Name', 'Motor_RPM');
 else
-    ts_pos_truth = timeseries(flightData.px4_est.pos, t, 'Name', 'Pos_Truth');
-    fprintf('Loaded Replay Data: Using PX4 ESTIMATE for Truth.\n');
+    % Zero fallback if missing (prevents block errors)
+    warning('No RPM data found. Using zeros.');
+    % Default to 8 motors (safe fallback for octo)
+    ts_rpm = timeseries(zeros(size(t,1), 8), t, 'Name', 'Motor_RPM');
 end
 
-% 4. Tustin Derivative Filter Setup (For Omega_Dot)
-% RLS needs angular acceleration. We use a "Dirty Derivative" filter:
-% H(s) = s / (tau*s + 1) -> Discretized via Tustin
-replay_dt = 0.004;      % 250 Hz (Log Rate)
-fc_deriv  = 15;         % Cutoff Frequency (Hz) - Tune this! (10-20Hz)
-tau_deriv = 1 / (2 * pi * fc_deriv);
+% --- B. SENSORS (RAW IMU) ---
+% These are in the BODY frame
+ts_omega = timeseries(flightData.imu.gyro, t, 'Name', 'Gyro_Body');
+ts_accel = timeseries(flightData.imu.accel, t, 'Name', 'Accel_Body');
 
+% --- C. MOCAP TRUTH ---
+if isfield(flightData, 'mocap') && any(flightData.mocap.pos(:))
+    ts_pos_truth = timeseries(flightData.mocap.pos, t, 'Name', 'Pos_Truth'); % NED
+    ts_quat      = timeseries(flightData.mocap.q,   t, 'Name', 'Att_Quat');   % Attitude q
+    ts_rpy       = timeseries(flightData.mocap.rpy, t, 'Name', 'Att_RPY');    % Euler Angles
+    
+    fprintf('Loaded: Mocap Truth (Pos, Quat, RPY).\n');
+else
+    warning('No Mocap Data found! Replay comparison will be empty.');
+    % Create dummy ground truth to allow simulation to run
+    ts_pos_truth = timeseries(zeros(length(t),3), t, 'Name', 'Pos_Truth');
+    ts_quat      = timeseries(repmat([1 0 0 0], length(t),1), t, 'Name', 'Att_Quat');
+    ts_rpy       = timeseries(zeros(length(t),3), t, 'Name', 'Att_RPY');
+end
+
+% --- D. ONBOARD ESTIMATES (NEW) ---
+% We load these to compare against our RLS/UKF, or to use as state feedback.
+
+% 1. Body Frame Velocity (Calculated in ulog_to_mat)
+if isfield(flightData.px4_est, 'vel_body')
+    ts_est_vel_body = timeseries(flightData.px4_est.vel_body, t, 'Name', 'Est_Vel_Body');
+else
+    ts_est_vel_body = timeseries(zeros(length(t),3), t, 'Name', 'Est_Vel_Body');
+end
+
+% 2. Body Frame Linear Acceleration (Calculated in ulog_to_mat)
+if isfield(flightData.px4_est, 'acc_body')
+    ts_est_acc_body = timeseries(flightData.px4_est.acc_body, t, 'Name', 'Est_Acc_Body');
+else
+    ts_est_acc_body = timeseries(zeros(length(t),3), t, 'Name', 'Est_Acc_Body');
+end
+
+% 3. Angular Acceleration (From vehicle_angular_velocity derivative)
+if isfield(flightData.px4_est, 'ang_accel')
+    ts_est_ang_accel = timeseries(flightData.px4_est.ang_accel, t, 'Name', 'Est_Ang_Accel');
+else
+    ts_est_ang_accel = timeseries(zeros(length(t),3), t, 'Name', 'Est_Ang_Accel');
+end
+
+% 4. Angular Velocity (NEW - Filtered/Estimated Body Rates)
+if isfield(flightData.px4_est, 'ang_vel')
+    ts_est_ang_vel = timeseries(flightData.px4_est.ang_vel, t, 'Name', 'Est_Ang_Vel');
+else
+    % Fallback to raw gyro if estimate is missing
+    ts_est_ang_vel = ts_omega;
+    ts_est_ang_vel.Name = 'Est_Ang_Vel_Fallback';
+end
+
+fprintf('Loaded: PX4 Body Estimates (Vel, Acc, AngVel, AngAccel).\n');
+
+%% 4. TUSTIN DERIVATIVE FILTER SETUP
+% Used for computing Angular Acceleration from Gyro in Simulink (if needed)
+% H(s) = s / (tau*s + 1) -> Discretized via Tustin
+replay_dt = 0.004;      % 250 Hz
+fc_deriv  = 15;         % Cutoff Frequency (Hz)
+tau_deriv = 1 / (2 * pi * fc_deriv);
 denom_term = (2*tau_deriv + replay_dt);
 
 % Discrete Transfer Fcn Coefficients [Num, Den]
-% Block Input: Omega (ts_omega) -> Block Output: Omega_Dot
 diff_num = [2, -2] / denom_term;
 diff_den = [1, (replay_dt - 2*tau_deriv) / denom_term];
 
-fprintf('Derivative Filter: %d Hz Cutoff. \n', fc_deriv);
+fprintf('Setup Complete.\n');
