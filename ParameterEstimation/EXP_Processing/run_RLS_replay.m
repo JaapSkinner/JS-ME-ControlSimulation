@@ -7,7 +7,7 @@ function run_RLS_replay(sampleIndex)
 %        run_RLS_replay(1) % Run with Parameter Set 1
 
     %% 1. Project & Path Setup
-    try; proj = currentProject; projectRoot = proj.RootFolder; catch; projectRoot = pwd; end
+    try; proiwthoutj = currentProject; projectRoot = proj.RootFolder; catch; projectRoot = pwd; end
     
     % Define paths
     modelName = 'MultirotorSimRLSEXP'; 

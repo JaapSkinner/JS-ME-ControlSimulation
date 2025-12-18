@@ -62,10 +62,8 @@ else
 end
 
 % 2. Body Frame Linear Acceleration (Calculated in ulog_to_mat)
-if isfield(flightData.px4_est, 'acc_body')
-    ts_est_acc_body = timeseries(flightData.px4_est.acc_body, t, 'Name', 'Est_Acc_Body');
-else
-    ts_est_acc_body = timeseries(zeros(length(t),3), t, 'Name', 'Est_Acc_Body');
+if isfield(flightData.px4_est, 'acc_body_meas')
+    ts_est_acc_body = timeseries(flightData.px4_est.acc_body_meas, t, 'Name', 'Est_Acc_Body');
 end
 
 % 3. Angular Acceleration (From vehicle_angular_velocity derivative)

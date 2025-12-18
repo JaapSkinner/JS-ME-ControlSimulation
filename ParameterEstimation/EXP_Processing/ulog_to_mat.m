@@ -4,32 +4,25 @@
 % 3. Auto-Syncs using Cross-Correlation on Z-Height
 % 4. TRIMS data to start just before flight
 clear; clc;
-
 %% 1. CONFIGURATION
 % --- Vehicle Config ---
 NUM_MOTORS = 8;         % <--- UPDATED FOR OCTOCOPTER
-
 % --- Sync Settings ---
 MANUAL_OFFSET = 0.0; 
 ENABLE_AUTO_SYNC = true;
-
 % --- Vicon Settings ---
 VICON_RATE = 100;       % Hz
 VICON_HEADER_LINES = 5; % Junk lines before header
-
 % --- Trimming Settings ---
 TRIM_DATA = true;       
 TRIM_BUFFER = 10.0;     % Seconds to keep BEFORE Arming
-
 %% 2. FILE SELECTION
 if ispc; homeDir = getenv('USERPROFILE'); else; homeDir = getenv('HOME'); end
 try; proj = currentProject; projRoot = proj.RootFolder; catch; projRoot = pwd; end
-
 % A. Select ULog
 fprintf('1. Select ULog file...\n');
 [ulogName, ulogPath] = uigetfile({'*.ulg', 'PX4 ULog'}, 'Select Flight Log', projRoot);
 if isequal(ulogName, 0); return; end
-
 % B. Select Mocap CSV
 fprintf('2. Select Vicon CSV file...\n');
 [csvName, csvPath] = uigetfile({'*.csv', 'Vicon Data'}, 'Select Vicon CSV', ulogPath);
@@ -39,13 +32,11 @@ if isequal(csvName, 0);
 else 
     hasMocap=true; 
 end
-
 % C. Save Path
 fprintf('3. Select Save Folder...\n');
 savePath = uigetdir(projRoot, 'Select Save Folder');
 if isequal(savePath, 0); savePath = projRoot; end
 saveFileName = fullfile(savePath, [ulogName(1:end-4) '_synced.mat']);
-
 %% 3. LOAD ULOG
 fprintf('\n--- PROCESSING ULOG ---\n');
 ulog = ulogreader(fullfile(ulogPath, ulogName));
@@ -61,6 +52,7 @@ raw_esc   = readTT('esc_status');
 % --- NEW TOPICS ---
 raw_att     = readTT('vehicle_attitude');           
 raw_ang_vel = readTT('vehicle_angular_velocity'); 
+raw_veh_acc = readTT('vehicle_acceleration'); % <--- NEW: Estimator Specific Force
 
 if isempty(raw_imu); error('CRITICAL: sensor_combined missing.'); end
 
@@ -70,17 +62,15 @@ t_start_log = t_source(1);
 t_master = (t_start_log : 0.004 : t_source(end))'; 
 flightData.time = t_master - t_start_log; 
 
-% Extract Log Data (IMU)
+% Extract Log Data (IMU - Raw)
 flightData.imu.gyro  = extractVector(raw_imu, 'gyro_rad', [1 2 3], t_master);
 flightData.imu.accel = extractVector(raw_imu, 'accelerometer_m_s2', [1 2 3], t_master);
 
-% --- ACTUATORS (UPDATED PRIORITY) ---
+% --- ACTUATORS ---
 act_indices = 1:NUM_MOTORS;
-
 fprintf('Extracting Control Inputs (actuator_motors)...\n');
 % 1. Try 'actuator_motors.control' (Normalized 0-1)
 act_data = extractVector(raw_ctrl, 'control', act_indices, t_master);
-
 % 2. Fallback to 'actuator_outputs' if control is empty
 if (isempty(act_data) || max(abs(act_data(:))) == 0) && ~isempty(raw_out)
     warning('actuator_motors.control empty. Falling back to actuator_outputs.');
@@ -101,24 +91,24 @@ flightData.actuators.cmd = act_data;
 fprintf('Extracting RPM for %d Motors...\n', NUM_MOTORS);
 flightData.actuators.rpm = extractRPM(raw_esc, t_master, NUM_MOTORS);
 
-% --- PX4 ESTIMATES (UPDATED) ---
+% --- PX4 ESTIMATES ---
 fprintf('Extracting PX4 Estimates...\n');
-
 % 1. Position (x,y,z)
 flightData.px4_est.pos = extractScalars(raw_pos, {'x','y','z'}, t_master);
-
 % 2. Velocity & Acceleration (Inertial NED Frame)
 flightData.px4_est.vel = extractScalars(raw_pos, {'vx','vy','vz'}, t_master);
 flightData.px4_est.acc = extractScalars(raw_pos, {'ax','ay','az'}, t_master);
-
 % 3. Attitude Quaternions (q)
 flightData.px4_est.q = extractVector(raw_att, 'q', [1 2 3 4], t_master);
-
 % 4. Angular Velocity & Acceleration
 flightData.px4_est.ang_vel   = extractVector(raw_ang_vel, 'xyz', [1 2 3], t_master);
 flightData.px4_est.ang_accel = extractVector(raw_ang_vel, 'xyz_derivative', [1 2 3], t_master);
 
-% 5. Calculated Euler (Convenience)
+% 5. Measured Acceleration (Body Frame, Specific Force) <--- NEW FOR RLS
+%    This is bias-corrected accelerometer data (includes Gravity)
+flightData.px4_est.acc_body_meas = extractVector(raw_veh_acc, 'xyz', [1 2 3], t_master);
+
+% 6. Calculated Euler (Convenience)
 if any(flightData.px4_est.q(:))
     [y, p, r] = quat2angle(flightData.px4_est.q);
     flightData.px4_est.rpy = [r, p, y];
@@ -126,13 +116,13 @@ else
     flightData.px4_est.rpy = zeros(length(t_master), 3);
 end
 
-% 6. CALCULATE BODY FRAME VECTORS (NEW)
-%    PX4 'vel' and 'acc' are in NED (Inertial). 
-%    We rotate them INTO the Body Frame using the inverse of the attitude quaternion.
+% 7. CALCULATE BODY FRAME KINEMATICS (DERIVED)
+%    We rotate NED Kinematic Accel INTO the Body Frame.
+%    (This is VBodyDot without Coriolis, useful for validation)
 if any(flightData.px4_est.q(:))
     fprintf('Calculating Body Frame Velocities...\n');
     flightData.px4_est.vel_body = rotate_vector_inv(flightData.px4_est.vel, flightData.px4_est.q);
-    flightData.px4_est.acc_body = rotate_vector_inv(flightData.px4_est.acc, flightData.px4_est.q);
+    flightData.px4_est.acc_body_kinematic = rotate_vector_inv(flightData.px4_est.acc, flightData.px4_est.q);
 end
 
 %% 4. LOAD & PARSE VICON CSV (NEU -> NED)
@@ -254,7 +244,6 @@ else
     flightData.mocap.rpy = zeros(length(t_master),3);
     flightData.mocap.q   = zeros(length(t_master),4);
 end
-
 %% 5. TRIM DATA
 if TRIM_DATA
     fprintf('\n--- TRIMMING DATA ---\n');
@@ -286,17 +275,14 @@ if TRIM_DATA
         end
     end
 end
-
 %% 6. SAVE
 fprintf('\nSaving to: %s ...\n', saveFileName);
 save(saveFileName, 'flightData');
 fprintf('Done.\n');
-
 %% HELPERS
 function vals = forceNumeric(col)
     if iscell(col); vals = str2double(col); else; vals = col; end
 end
-
 function name = findColumn(tbl, candidates)
     name = ''; cols = tbl.Properties.VariableNames;
     for i=1:length(candidates)
@@ -306,7 +292,6 @@ function name = findColumn(tbl, candidates)
         if ~isempty(match); name = cols{match}; return; end
     end
 end
-
 function tt = safeReadTT(ulog, topicName)
     tt = timetable();
     if ~any(strcmp(ulog.AvailableTopics.TopicNames, topicName))
@@ -320,7 +305,6 @@ function tt = safeReadTT(ulog, topicName)
         warning('Error reading %s: %s', topicName, ME.message);
     end
 end
-
 function out = extractRPM(tt, t_query, n_motors)
     out = zeros(length(t_query), n_motors); 
     if isempty(tt); return; end
@@ -355,7 +339,6 @@ function out = extractRPM(tt, t_query, n_motors)
         end
     end
 end
-
 function out = extractVector(tt, varName, indices, t_query)
     out = zeros(length(t_query), length(indices));
     if isempty(tt); return; end
@@ -375,7 +358,6 @@ function out = extractVector(tt, varName, indices, t_query)
         end
     end
 end
-
 function out = extractScalars(tt, varNames, t_query)
     out = zeros(length(t_query), length(varNames));
     if isempty(tt); return; end
@@ -390,20 +372,17 @@ function out = extractScalars(tt, varNames, t_query)
         end
     end
 end
-
 function [r, p, y] = q_to_euler(q)
     w = q(:,1); x = q(:,2); y = q(:,3); z = q(:,4);
     r = atan2(2*(w.*x + y.*z), 1 - 2*(x.^2 + y.^2));
     p = asin(max(-1, min(1, 2*(w.*y - z.*x))));
     y = atan2(2*(w.*z + x.*y), 1 - 2*(y.^2 + z.^2));
 end
-
 function q = euler_to_q(r, p, y)
     c1=cos(y/2); s1=sin(y/2); c2=cos(p/2); s2=sin(p/2); c3=cos(r/2); s3=sin(r/2);
     q = [c1.*c2.*c3 + s1.*s2.*s3, c1.*c2.*s3 - s1.*s2.*c3, ...
          c1.*s2.*c3 + s1.*c2.*s3, s1.*c2.*c3 - c1.*s2.*s3];
 end
-
 function v_body = rotate_vector_inv(v_inertial, q)
     q_inv = [q(:,1), -q(:,2), -q(:,3), -q(:,4)];
     w = q_inv(:,1);
