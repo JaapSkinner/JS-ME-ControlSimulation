@@ -112,6 +112,7 @@ function run_RLS_replay(sampleIndex)
     simIn = simIn.setVariable('ts_est_acc_body',  ts_est_acc_body);
     simIn = simIn.setVariable('ts_est_ang_accel', ts_est_ang_accel);
     simIn = simIn.setVariable('ts_est_ang_vel',   ts_est_ang_vel); 
+    simIn = simIn.setVariable('ts_est_ang', ts_est_ang);
 
     % --- G. Solver Config ---
     simIn = simIn.setModelParameter('StopTime', string(sim_duration));

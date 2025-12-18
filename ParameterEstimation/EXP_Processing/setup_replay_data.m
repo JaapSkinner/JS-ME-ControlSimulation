@@ -4,7 +4,7 @@
 
 %% 1. LOAD DATA
 if ~exist('flightData', 'var')
-    try; proj = currentProject; startPath = proj.RootFolder; catch; startPath = pwd; end
+    try; proj = currentProject; startPath = fullfile(proj.RootFolder,'ParameterEstimation'); catch; startPath = pwd; end
     [fName, pPath] = uigetfile(fullfile(startPath, '*.mat'), 'Select Processed Flight Data');
     if isequal(fName,0); error('No data selected.'); end
     load(fullfile(pPath, fName));
@@ -82,6 +82,11 @@ else
     % Fallback to raw gyro if estimate is missing
     ts_est_ang_vel = ts_omega;
     ts_est_ang_vel.Name = 'Est_Ang_Vel_Fallback';
+end
+
+% 5. Attitude from Px4
+if isfield(flightData.px4_est, 'rpy')
+    ts_est_ang = timeseries(flightData.px4_est.rpy, t, 'Name','Est_Ang');
 end
 
 fprintf('Loaded: PX4 Body Estimates (Vel, Acc, AngVel, AngAccel).\n');
