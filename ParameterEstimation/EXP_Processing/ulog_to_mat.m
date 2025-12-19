@@ -1,42 +1,58 @@
-%% ULog + Vicon CSV Merger & Sync (Octocopter Fixed)
+%% ULog + Vicon CSV Merger & Sync (Octocopter Fixed + Euler/Quat Switch)
 % 1. Reads PX4 ULog (Vector Aware)
 % 2. Reads Vicon CSV (NEU -> NED with Inverted Y, Pitch, and Yaw)
 % 3. Auto-Syncs using Cross-Correlation on Z-Height
 % 4. TRIMS data to start just before flight
 clear; clc;
+
 %% 1. CONFIGURATION
+
+% --- Mocap Rotation Format ---
+% 'QUAT'  : Expects RX, RY, RZ, RW (Quaternion)
+% 'EULER' : Expects RX, RY, RZ (Euler Angles in Radians)
+MOCAP_ROTATION_TYPE = 'EULER'; 
+
 % --- Vehicle Config ---
 NUM_MOTORS = 8;         % <--- UPDATED FOR OCTOCOPTER
+
 % --- Sync Settings ---
 MANUAL_OFFSET = 0.0; 
 ENABLE_AUTO_SYNC = true;
+
 % --- Vicon Settings ---
 VICON_RATE = 100;       % Hz
 VICON_HEADER_LINES = 5; % Junk lines before header
+
 % --- Trimming Settings ---
 TRIM_DATA = true;       
 TRIM_BUFFER = 10.0;     % Seconds to keep BEFORE Arming
+
 %% 2. FILE SELECTION
 if ispc; homeDir = getenv('USERPROFILE'); else; homeDir = getenv('HOME'); end
 try; proj = currentProject; projRoot = proj.RootFolder; catch; projRoot = pwd; end
+
 % A. Select ULog
 fprintf('1. Select ULog file...\n');
 [ulogName, ulogPath] = uigetfile({'*.ulg', 'PX4 ULog'}, 'Select Flight Log', projRoot);
 if isequal(ulogName, 0); return; end
+
 % B. Select Mocap CSV
 fprintf('2. Select Vicon CSV file...\n');
 [csvName, csvPath] = uigetfile({'*.csv', 'Vicon Data'}, 'Select Vicon CSV', ulogPath);
+
 if isequal(csvName, 0); 
     disp('No CSV selected. Proceeding without Mocap.'); 
     hasMocap=false; 
 else 
     hasMocap=true; 
 end
+
 % C. Save Path
 fprintf('3. Select Save Folder...\n');
 savePath = uigetdir(projRoot, 'Select Save Folder');
 if isequal(savePath, 0); savePath = projRoot; end
 saveFileName = fullfile(savePath, [ulogName(1:end-4) '_synced.mat']);
+
 %% 3. LOAD ULOG
 fprintf('\n--- PROCESSING ULOG ---\n');
 ulog = ulogreader(fullfile(ulogPath, ulogName));
@@ -52,7 +68,7 @@ raw_esc   = readTT('esc_status');
 % --- NEW TOPICS ---
 raw_att     = readTT('vehicle_attitude');           
 raw_ang_vel = readTT('vehicle_angular_velocity'); 
-raw_veh_acc = readTT('vehicle_acceleration'); % <--- NEW: Estimator Specific Force
+raw_veh_acc = readTT('vehicle_acceleration'); % Estimator Specific Force
 
 if isempty(raw_imu); error('CRITICAL: sensor_combined missing.'); end
 
@@ -100,12 +116,38 @@ flightData.px4_est.vel = extractScalars(raw_pos, {'vx','vy','vz'}, t_master);
 flightData.px4_est.acc = extractScalars(raw_pos, {'ax','ay','az'}, t_master);
 % 3. Attitude Quaternions (q)
 flightData.px4_est.q = extractVector(raw_att, 'q', [1 2 3 4], t_master);
-% 4. Angular Velocity & Acceleration
-flightData.px4_est.ang_vel   = extractVector(raw_ang_vel, 'xyz', [1 2 3], t_master);
-flightData.px4_est.ang_accel = extractVector(raw_ang_vel, 'xyz_derivative', [1 2 3], t_master);
+% 4. Angular Velocity (Gyro) - The Truth Source
+flightData.px4_est.ang_vel = extractVector(raw_ang_vel, 'xyz', [1 2 3], t_master);
 
-% 5. Measured Acceleration (Body Frame, Specific Force) <--- NEW FOR RLS
-%    This is bias-corrected accelerometer data (includes Gravity)
+% 5. Angular Acceleration (NuBodyDot) - ROBUST CALCULATION
+% Replaces: extractVector(raw_ang_vel, 'xyz_derivative'...)
+% Why: The log's derivative is often noisy/empty. We smooth & diff manually.
+fprintf('  > Calculating Smooth Angular Acceleration from Gyro...\n');
+
+% Config: 250Hz sample time
+dt = 0.004; 
+
+% Window: ~80ms (20 samples). 
+% This removes motor vibration (high freq) but keeps control authority (low freq).
+window_size = 20; 
+
+flightData.px4_est.ang_accel = zeros(size(flightData.px4_est.ang_vel));
+
+for axis = 1:3
+    raw_gyro = flightData.px4_est.ang_vel(:, axis);
+    
+    % Step A: Gaussian Smoothing (Zero-phase filtering)
+    % This kills the "fuzz" that ruins RLS
+    smooth_gyro = smoothdata(raw_gyro, 'gaussian', window_size);
+    
+    % Step B: Central Difference
+    % Calculates d(omega)/dt
+    flightData.px4_est.ang_accel(:, axis) = gradient(smooth_gyro, dt);
+end
+
+% Visual Check (Uncomment to debug)
+% figure; plot(flightData.px4_est.ang_accel); title('Calculated Angular Accel');
+% 5. Measured Acceleration (Body Frame, Specific Force)
 flightData.px4_est.acc_body_meas = extractVector(raw_veh_acc, 'xyz', [1 2 3], t_master);
 
 % 6. Calculated Euler (Convenience)
@@ -117,8 +159,6 @@ else
 end
 
 % 7. CALCULATE BODY FRAME KINEMATICS (DERIVED)
-%    We rotate NED Kinematic Accel INTO the Body Frame.
-%    (This is VBodyDot without Coriolis, useful for validation)
 if any(flightData.px4_est.q(:))
     fprintf('Calculating Body Frame Velocities...\n');
     flightData.px4_est.vel_body = rotate_vector_inv(flightData.px4_est.vel, flightData.px4_est.q);
@@ -128,6 +168,7 @@ end
 %% 4. LOAD & PARSE VICON CSV (NEU -> NED)
 if hasMocap
     fprintf('\n--- PROCESSING VICON CSV ---\n');
+    fprintf('  > Rotation Mode: %s\n', MOCAP_ROTATION_TYPE);
     
     % --- READ CSV ---
     opts = detectImportOptions(fullfile(csvPath, csvName));
@@ -143,36 +184,73 @@ if hasMocap
     % --- IDENTIFY COLUMNS ---
     col_frame = findColumn(raw_table, {'Frame', 'frame'});
     col_tx    = findColumn(raw_table, {'TX', 'tx', 'Tx', 'Translation X'});
-    col_rx    = findColumn(raw_table, {'RX', 'rx', 'Rx', 'Rotation X'});
-    col_rw    = findColumn(raw_table, {'RW', 'rw', 'Rw', 'Rotation W'}); 
     
     v_frame = []; v_pos_neu = []; v_quat_neu = [];
     
-    % Logic: Read Data
+    % --- LOGIC FOR HEADER-BASED READ ---
     if ~isempty(col_frame) && ~isempty(col_tx)
-        % Name Based
         v_frame = forceNumeric(raw_table.(col_frame));
+        
+        % Position (Common to both)
         v_pos_neu = [forceNumeric(raw_table.(col_tx)), ...
                      forceNumeric(raw_table.(findColumn(raw_table, {'TY','ty'}))), ...
                      forceNumeric(raw_table.(findColumn(raw_table, {'TZ','tz'})))];
         
-        % Try Reading Quaternions
-        if ~isempty(col_rx)
-             ry = forceNumeric(raw_table.(findColumn(raw_table, {'RY','ry'})));
-             rz = forceNumeric(raw_table.(findColumn(raw_table, {'RZ','rz'})));
-             rx = forceNumeric(raw_table.(col_rx));
-             if ~isempty(col_rw); rw = forceNumeric(raw_table.(col_rw)); else; rw = ones(size(rx)); end
-             v_quat_neu = [rw, rx, ry, rz]; 
+        % Rotation (Switch based on Flag)
+        col_rx = findColumn(raw_table, {'RX', 'rx', 'Rotation X', 'Rad X', 'Angle X'});
+        col_ry = findColumn(raw_table, {'RY', 'ry', 'Rotation Y', 'Rad Y', 'Angle Y'});
+        col_rz = findColumn(raw_table, {'RZ', 'rz', 'Rotation Z', 'Rad Z', 'Angle Z'});
+
+        if strcmp(MOCAP_ROTATION_TYPE, 'QUAT')
+            col_rw = findColumn(raw_table, {'RW', 'rw', 'Rw', 'Rotation W'});
+            if ~isempty(col_rx) && ~isempty(col_rw)
+                rx = forceNumeric(raw_table.(col_rx));
+                ry = forceNumeric(raw_table.(col_ry));
+                rz = forceNumeric(raw_table.(col_rz));
+                rw = forceNumeric(raw_table.(col_rw));
+                v_quat_neu = [rw, rx, ry, rz]; 
+            else
+                 warning('Quaternions not found in columns. Checking Euler fallback...');
+            end
+        elseif strcmp(MOCAP_ROTATION_TYPE, 'EULER')
+            if ~isempty(col_rx)
+                fprintf('  > Reading Euler Angles (Rad)...\n');
+                rx = forceNumeric(raw_table.(col_rx));
+                ry = forceNumeric(raw_table.(col_ry));
+                rz = forceNumeric(raw_table.(col_rz));
+                % Convert Euler (Rad) directly to Quaternion for internal consistency
+                v_quat_neu = euler_to_q(rx, ry, rz);
+            else
+                error('Euler Angle columns (RX, RY, RZ) not found.');
+            end
         end
+        
+    % --- LOGIC FOR HEADERLESS (INDEX FALLBACK) ---
     else
-        % Index Fallback
+        fprintf('  > Headers missing. Using Index Fallback...\n');
         try
             raw_mat = readmatrix(fullfile(csvPath, csvName), 'NumHeaderLines', VICON_HEADER_LINES);
-            if size(raw_mat, 2) >= 9
-                v_frame = raw_mat(:, 1);
-                v_quat_neu = [raw_mat(:, 6), raw_mat(:, 3), raw_mat(:, 4), raw_mat(:, 5)]; 
-                v_pos_neu  = raw_mat(:, 7:9);
-            else
+            v_frame = raw_mat(:, 1);
+            
+            % Columns shift depending on whether we have 3 or 4 rotation columns
+            if strcmp(MOCAP_ROTATION_TYPE, 'QUAT')
+                % Assuming: Frame(1), Sub(2), RX(3), RY(4), RZ(5), RW(6), TX(7), TY(8), TZ(9)
+                if size(raw_mat, 2) >= 9
+                    v_quat_neu = [raw_mat(:, 6), raw_mat(:, 3), raw_mat(:, 4), raw_mat(:, 5)]; 
+                    v_pos_neu  = raw_mat(:, 7:9);
+                end
+            elseif strcmp(MOCAP_ROTATION_TYPE, 'EULER')
+                % Assuming: Frame(1), Sub(2), RX(3), RY(4), RZ(5), TX(6), TY(7), TZ(8)
+                if size(raw_mat, 2) >= 8
+                    rx = raw_mat(:, 3);
+                    ry = raw_mat(:, 4);
+                    rz = raw_mat(:, 5);
+                    v_quat_neu = euler_to_q(rx, ry, rz);
+                    v_pos_neu  = raw_mat(:, 6:8);
+                end
+            end
+            
+            if isempty(v_pos_neu)
                 error('Vicon CSV has too few columns for Index Fallback.');
             end
         catch ME
@@ -195,12 +273,13 @@ if hasMocap
     v_pos_ned(:, 3) = -v_pos_neu(:, 3); % Invert Z
     
     % Attitude
+    % (We now always have v_quat_neu, regardless of source format)
     if ~isempty(v_quat_neu)
         [r_neu, p_neu, y_neu] = q_to_euler(v_quat_neu);
         
         % --- UPDATED TRANSFORMATION ---
         r_ned = r_neu;    
-        p_ned = -p_neu;  % <--- PITCH INVERTED (User Request)
+        p_ned = -p_neu;  % <--- PITCH INVERTED
         y_ned = -y_neu;  % Yaw Inverted
         
         v_rpy_ned = [r_ned, p_ned, y_ned];
@@ -244,6 +323,7 @@ else
     flightData.mocap.rpy = zeros(length(t_master),3);
     flightData.mocap.q   = zeros(length(t_master),4);
 end
+
 %% 5. TRIM DATA
 if TRIM_DATA
     fprintf('\n--- TRIMMING DATA ---\n');
@@ -275,10 +355,12 @@ if TRIM_DATA
         end
     end
 end
+
 %% 6. SAVE
 fprintf('\nSaving to: %s ...\n', saveFileName);
 save(saveFileName, 'flightData');
 fprintf('Done.\n');
+
 %% HELPERS
 function vals = forceNumeric(col)
     if iscell(col); vals = str2double(col); else; vals = col; end
