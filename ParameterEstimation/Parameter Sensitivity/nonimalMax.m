@@ -73,6 +73,7 @@ for i = 1:nTests
     results(:, i) = computeWrench(W_des, params);
 end
 
+
 % --- 5. Analyze and Display Per-Axis Results ---
 max_authority = max(abs(results), [], 2);
 zero_setpoint_idx = find(all(setpoints_max_test == 0, 2), 1);

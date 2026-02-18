@@ -93,7 +93,7 @@ fprintf('Master data table created. Searching for significant trends...\n\n');
 
 % --- 2. Systematically Test All Permutations ---
 % --- MODIFIED: Updated index ranges for causes and effects ---
-causes = varNames(3:15);  % Now 13 causes
+causes = varNames(3:15);  % Now 13 causesTx
 effects = varNames(16:end); % Effects start after the causes
 % -----------------------------------------------------------
 

@@ -15,11 +15,20 @@ run('InitUKF.m');
 run('InitRLS.m');
 
 % --- CRITICAL STEP: CAPTURE NOMINAL B MATRIX NOW ---
-% We save this immediately to ensure it represents the "Perfect" plant.
+% We save this immediately to emagnetic screw t lab
+%nsure it represents the "Perfect" plant.
 if ~exist('B_matrix_nominal', 'var')
     error('B_matrix_nominal not found after InitRLS. Check your init scripts.');
 end
-B_matrix_nominal_TRUE = B_matrix_nominal; 
+BAxis   | RLS RMSE     | Nominal RMSE
+-------------------------------------------------
+Fx     | 0.0168       | 0.0304      
+Fy     | 0.0193       | 0.0427      
+Fz     | 0.2913       | 2.2231      
+Mx     | 0.0028       | 0.0040      
+My     | 0.0033       | 0.0147      
+Mz     | 0.0008       | 0.0010      
+ppr2exllldd130_matrix_nominal_TRUE = B_matrix_nominal; 
 fprintf('Nominal B Matrix captured. First element: %f\n', B_matrix_nominal_TRUE(1,1));
 
 %% 2. Trajectory Generation

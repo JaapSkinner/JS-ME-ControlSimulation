@@ -4,7 +4,7 @@ proj = matlab.project.currentProject;
 projectRoot = proj.RootFolder;
 submodulePath = fullfile(projectRoot, 'Simulink_Flight_Simulation', 'Multirotor with PX4 2023');
 currentPath = fullfile(projectRoot, 'ParameterEstimation');
-modelDataFile = fullfile(projectRoot, 'ParameterEstimation', "Octo_CantedStacked_Flamingo.mat");
+modelDataFile = fullfile(projectRoot, 'ParameterEstimation', "Octo_CantedStacked_FlamingoOLD.mat");
 windFile = fullfile(projectRoot, 'ParameterEstimation', 'windData.mat');
 
 addpath(genpath(submodulePath))
