@@ -143,6 +143,61 @@ fprintf('\n============================================================\n');
 fprintf('Analysis complete. All simplified models saved to:\n%s\n', output_filename);
 fprintf('You can now run the ''generateSensitivityReport.m'' script.\n');
 
+
+uqlab;
+% =========================================================================
+% PER-SETPOINT UQLAB SOBOL ANALYSIS (Using PCE Surrogate)
+% =========================================================================
+% Ensure UQLab is initialized before running this!
+% Type 'uqlab' in the command window if you haven't already.
+
+% Let's run this for just the first Setpoint as an example
+sp = 1; 
+fprintf('\n--- Running UQLab PCE & Sobol for Setpoint %d ---\n', sp);
+
+% 1. Extract X (Predictors) and Y (Output) from your existing mega_table
+predictors = varNames(3:end-2);
+subset_table = mega_table(mega_table.SetpointID == sp, :);
+X = subset_table{:, predictors};
+Y = subset_table.ErrorScore;
+
+% Clean any NaNs so UQLab doesn't throw an error
+valid_idx = ~any(isnan(X), 2) & ~isnan(Y);
+X = X(valid_idx, :); 
+Y = Y(valid_idx);
+
+% 2. Define the Probabilistic Input Model
+% We tell UQLab to assume uniform distributions based on the min/max of your data
+clear InputOpts;
+for i = 1:size(X, 2)
+    InputOpts.Marginals(i).Type = 'Uniform';
+    InputOpts.Marginals(i).Parameters = [min(X(:,i)), max(X(:,i))];
+end
+myInput = uq_createInput(InputOpts);
+
+% 3. Build the Polynomial Chaos Expansion (PCE) Surrogate Model
+clear MetaOpts;
+MetaOpts.Type = 'Metamodel';
+MetaOpts.MetaType = 'PCE';
+MetaOpts.ExpDesign.X = X;
+MetaOpts.ExpDesign.Y = Y;
+MetaOpts.Degree = 1:5; % UQLab will auto-test degrees 1 through 5 and pick the best one
+myPCE = uq_createModel(MetaOpts);
+
+% 4. Extract Sobol Indices directly from the PCE coefficients
+clear SobolOpts;
+SobolOpts.Type = 'Sensitivity';
+SobolOpts.Method = 'Sobol';
+SobolOpts.Sobol.PCE = myPCE; % Tell it to use the surrogate we just built
+mySobol = uq_createAnalysis(SobolOpts);
+
+% 5. Print out the text report and plot the gorgeous Sobol bar charts
+uq_print(mySobol);
+uq_display(mySobol);
+
+
+
+
 % --- Helper function for Backward Elimination ---
 function [final_mdl, removed_log] = performBackwardElimination(data_table, response_var, initial_predictors, p_threshold)
     current_predictors = initial_predictors;
@@ -182,3 +237,4 @@ function val = getfield_safe(s, field, default)
         val = default;
     end
 end
+
