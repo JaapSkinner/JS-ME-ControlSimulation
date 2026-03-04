@@ -380,3 +380,109 @@ xticks(1:n_motors); yticks(1:n_motors);
 [x, y] = meshgrid(1:n_motors, 1:n_motors);
 text(x(:), y(:), num2str(Corr_Matrix(:), '%.2f'), ...
     'HorizontalAlignment', 'center', 'Color', 'w', 'FontSize', 8);
+
+%% 9. Residual Analysis & Spectral Content (FFT)
+fprintf('\n=================================================\n');
+fprintf('       RESIDUAL & SPECTRAL ANALYSIS\n');
+fprintf('=================================================\n');
+
+% --- A. Calculate Time-Domain Residuals ---
+% Residual = Real - Predicted
+Residuals = Y_real - Y_pred; 
+
+% --- B. Frequency Domain Analysis (FFT) ---
+% We assume constant sampling rate for FFT. We'll calculate it from target_time.
+fs = 1 / mean(diff(target_time)); % Sampling Frequency (Hz)
+L_samples = length(target_time);  % Length of signal
+f_axis = fs*(0:(L_samples/2))/L_samples; % Frequency vector
+
+figure('Name', 'Residual Analysis: Time & Frequency', 'Color', 'w');
+
+for i = 1:6
+    % --- Time Domain Subplot ---
+    subplot(6, 2, 2*i-1);
+    plot(target_time, Residuals(i, :), 'Color', [0.4, 0.4, 0.4]);
+    grid on;
+    ylabel(y_labels{i});
+    title(['Residual: ', axis_names{i}]);
+    if i == 6, xlabel('Time (s)'); end
+    
+    % --- Frequency Domain Subplot ---
+    subplot(6, 2, 2*i);
+    
+    % Compute FFT
+    Y_fft = fft(Residuals(i, :));
+    P2 = abs(Y_fft/L_samples);          % Two-sided spectrum
+    P1 = P2(1:floor(L_samples/2)+1);    % Single-sided spectrum
+    P1(2:end-1) = 2*P1(2:end-1);
+    
+    % Plot Magnitude Spectrum
+    semilogy(f_axis, P1, 'Color', [0.8, 0.2, 0.2], 'LineWidth', 1);
+    grid on;
+    title(['FFT of ', axis_names{i}, ' Residual']);
+    if i == 6, xlabel('Frequency (Hz)'); end
+    if i == 1, ylabel('Magnitude'); end
+end
+
+sgtitle('Residual Analysis: Time Domain (Left) vs. Frequency Domain (Right)');
+
+% --- C. Noise Floor Estimation ---
+avg_noise_power = mean(var(Residuals, 0, 2));
+fprintf('Average Residual Variance (Noise Floor): %.6f\n', avg_noise_power);
+fprintf('Spectral analysis complete. Check for peaks indicating unmodeled vibrations.\n');
+fprintf('=================================================\n');
+
+%% 10. Corrected Spectral Analysis & Filtered Residuals
+fprintf('\n=================================================\n');
+fprintf('       FILTERED RESIDUALS & PSD ANALYSIS\n');
+fprintf('=================================================\n');
+
+% --- A. Setup Parameters ---
+fs = 1 / mean(diff(target_time));   % Sampling Frequency
+L_samples = length(target_time);    % Signal Length
+window_size = floor(L_samples/8);   % 8 segments for Welch averaging
+nfft = 2^nextpow2(window_size);     % Next power of 2 for FFT efficiency
+
+% --- B. Low-Pass Filter for "Clean" Modeling Error ---
+% We'll filter out everything above 20Hz (typical drone control bandwidth)
+fc = 20; 
+[b_filt, a_filt] = butter(4, fc/(fs/2), 'low'); 
+
+figure('Name', 'Residual Analysis: Filtered vs Raw', 'Color', 'w');
+
+for i = 1:6
+    % --- 1. Time Domain (Filtered vs Raw) ---
+    subplot(6, 2, 2*i-1);
+    raw_res = Residuals(i, :);
+    filt_res = filtfilt(b_filt, a_filt, raw_res); % Zero-phase filtering
+    
+    hold on;
+    plot(target_time, raw_res, 'Color', [0.8, 0.8, 0.8], 'HandleVisibility', 'off'); % Light gray raw
+    plot(target_time, filt_res, 'r', 'LineWidth', 1.2, 'DisplayName', 'Modeling Bias');
+    grid on;
+    ylabel(y_labels{i});
+    title(['Residual: ', axis_names{i}]);
+    if i == 1, legend('Location', 'best'); end
+    
+    % --- 2. Power Spectral Density (Welch) ---
+    subplot(6, 2, 2*i);
+    % Check for Signal Processing Toolbox, else use basic periodogram
+    try
+        [pxx, f_psd] = pwelch(raw_res, window_size, [], nfft, fs);
+        semilogy(f_psd, pxx, 'LineWidth', 1.2, 'Color', [0, 0.4, 0.7]);
+    catch
+        % Fallback if pwelch isn't available
+        Y_fft = fft(raw_res, nfft);
+        pxx = (1/(fs*nfft)) * abs(Y_fft(1:nfft/2+1)).^2;
+        pxx(2:end-1) = 2*pxx(2:end-1);
+        f_psd = 0:fs/nfft:fs/2;
+        semilogy(f_psd, pxx, 'LineWidth', 1.2, 'Color', [0, 0.4, 0.7]);
+    end
+    
+    grid on;
+    xlim([0, fs/2]);
+    title(['PSD of ', axis_names{i}]);
+    if i == 6, xlabel('Frequency (Hz)'); end
+end
+
+sgtitle('Residuals: Filtered Time-Domain (Left) & PSD (Right)');
