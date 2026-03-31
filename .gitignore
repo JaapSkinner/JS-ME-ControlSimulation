@@ -35,3 +35,11 @@ codegen/
 # buildtool cache folder
 .buildtool/
 
+
+/ParameterEstimation/Flamingo Data/
+
+/ParameterEstimation/ParameterSet/
+
+/Results/ParameterEstimation/RLSDataFixedParamsCOMZ/
+
+/ParameterEstimation/RA/log_7_2025-12-17-16-38-20_synced.mat
