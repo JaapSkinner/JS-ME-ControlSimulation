@@ -4,7 +4,7 @@ function [u_out, t, params] = generate_orthogonal_multisine(N_inputs, T, f_min, 
 %   [u_out, t, params] = generate_orthogonal_multisine(N_inputs, T, f_min, f_max, fs)
 %
 %   See header for full details. 
-%   This version includes updated plotting visualizations.
+%   This version includes an adjustable spacing multiplier to spread frequencies out.
 
 % --- 1. Setup Basic Parameters ---
 fprintf('Generating %d orthogonal multisine signals...\n', N_inputs);
@@ -23,10 +23,18 @@ if length(h_pool) < N_inputs
            'Try increasing T or f_max, or decreasing f_min.']);
 end
 
+% >>> NEW: Spacing Multiplier <<<
+% Increase this >1 to spread the frequencies further apart for each motor.
+% E.g., a value of 3 will triple the Hz gap between frequencies on Motor 1.
+spacing_multiplier = 4; 
+
 % "Comb" the harmonics
 harmonics = cell(N_inputs, 1);
+stride = N_inputs * spacing_multiplier;
+
 for j = 1:N_inputs
-    harmonics{j} = h_pool(j:N_inputs:end);
+    % Deal out the harmonics, skipping by the new expanded stride
+    harmonics{j} = h_pool(j : stride : end);
 end
 
 % --- 3. Phase Generation (The "Optimized" Part) ---
@@ -77,7 +85,6 @@ params.f0 = f0;
 params.fs = fs;
 params.T = T;
 params.t = t;
-
 fprintf('Signal generation complete.\n');
 
 % --- Embedded Demonstration (runs if function is called with no outputs) ---
@@ -86,15 +93,15 @@ if nargout == 0
     
     % --- CONFIGURATION ---
     plot_scale_factor = 0.25; % SCALING FOR PLOT ONLY
-    plot_signals_to_show = min(N_inputs, 3); % Limiting to 3 as requested
+    plot_signals_to_show = min(N_inputs, 3); 
     plot_time_duration = min(T, 5); 
     plot_samples_count = round(plot_time_duration * fs);
     line_width = 1.2;
     font_size = 12;
-
+    
     % Create Scaled Data for Plotting
     u_plot = u_out * plot_scale_factor;
-
+    
     % --- FIGURE 1: Time-Domain Signals ---
     figure('Name', 'Time Domain', 'Color', 'w', 'NumberTitle', 'off');
     hold on;
@@ -113,10 +120,9 @@ if nargout == 0
     grid on; box on;
     legend('Location', 'northeast', 'FontSize', font_size - 1);
     xlim([0, plot_time_duration]);
-    % Scale limits slightly larger than the scaling factor
     ylim([-1.1*plot_scale_factor, 1.1*plot_scale_factor]); 
     set(gca, 'FontSize', font_size);
-
+    
     % --- FIGURE 2: Frequency-Domain (Proof of Orthogonality) ---
     figure('Name', 'Frequency Domain', 'Color', 'w', 'NumberTitle', 'off');
     hold on;
@@ -131,20 +137,17 @@ if nargout == 0
     
     % Use STEM plots to make distinct frequencies easier to see
     for j = 1:N_inputs
-        % 'Marker', 'none' makes clean vertical lines
         stem(f_vec, U_fft(:, j), 'Color', colors_fft(j,:), ...
              'LineWidth', 1.5, 'Marker', 'none', ...
              'DisplayName', sprintf('Motor Addition %d', j));
     end
     hold off;
     
-    title('Frequency Content (Orthogonal "Combs")', 'FontSize', font_size + 2);
+    title(sprintf('Frequency Content (Spacing Multiplier: %d)', spacing_multiplier), 'FontSize', font_size + 2);
     xlabel('Frequency (Hz)', 'FontSize', font_size);
     ylabel('Magnitude (Scaled)', 'FontSize', font_size);
     
-    % Use Linear X-scale to see the spacing better, Log Y-scale for dynamic range
     set(gca, 'YScale', 'linear'); 
-    % Zoom in specifically on the active region
     xlim([f_min * 0.9, f_max * 1.1]);
     
     grid on; box on;
@@ -152,11 +155,10 @@ if nargout == 0
         legend('Location', 'northeast', 'FontSize', 10, 'NumColumns', ceil(N_inputs/4));
     end
     set(gca, 'FontSize', font_size);
-
+    
     % --- FIGURE 3: Cross-Correlation ---
     figure('Name', 'Correlation', 'Color', 'w', 'NumberTitle', 'off');
     
-    % Cross correlation is normalized, so scaling factor cancels out
     [c, lags] = xcorr(u_out, 'normalized');
     lags_ms = lags * (1000/fs);
     
@@ -177,9 +179,8 @@ if nargout == 0
     xlim([-500, 500]); 
     ylim([-1.1, 1.1]);
     
-    % Smart Legend
     if ~isempty(cross_corr_indices)
-        legend([h2(1), h1(1)], {'Auto-Correlation (Signal vs Itself)', 'Cross-Correlation (Signal vs Others)'}, ...
+        legend([h2(1), h1(1)], {'Auto-Correlation', 'Cross-Correlation'}, ...
             'Location', 'northeast', 'FontSize', font_size);
     else
         legend(h2(1), 'Auto-Correlation', 'Location', 'northeast');
@@ -187,8 +188,6 @@ if nargout == 0
     set(gca, 'FontSize', font_size);
     
     fprintf('Demonstration plots generated in separate windows.\n');
-    
-    % Clear outputs
     clear u_out t params;
 end
 end

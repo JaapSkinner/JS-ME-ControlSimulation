@@ -19,7 +19,7 @@ if ~exist('projectRoot', 'var')
     projectRoot = pwd; 
 end
 
-folderName = 'ParameterSetCOMZ'; % Folder name from GenerateParameterSets.m
+folderName = 'ParameterSet'; % Folder name from GenerateParameterSets.m
 dataSetDir = fullfile(projectRoot, 'ParameterEstimation', folderName);
 
 % Construct filename
@@ -37,7 +37,7 @@ end
 run('InitUKF.m') % Innit UKF before varying parameters
 run('InitRLS.m');
 
-[multisine, sineT, ~] = generate_orthogonal_multisine(8, 15, 0.1, 1.0, 100);
+[multisine, sineT, ~] = generate_orthogonal_multisine(8, 35, 0.5, 5.0, 100);
 multisinesignal = [sineT,multisine];
 
 %% 3. Load & Apply Pre-Generated Parameters
@@ -111,6 +111,6 @@ savePath = fullfile(outputFolder, outputFile);
 
 save(savePath, 'simIn', 'simOut', 'Uav', 'Motor', 'features_i', 'B_matrix_nominal');
 
-% fprintf('Success! Results saved to:\n%s\n', savePath);
+fprintf('Success! Results saved to:\n%s\n', savePath);
 
 end

@@ -37,7 +37,7 @@ VARIATION_CONFIG = {
     'Uav',     'A_UAV',       'normal',  0.5;
     'Uav',     'A_PROP',      'normal',  1.0;
     'Uav',     'ZETA',        'normal',  5.0;
-    'Uav',     'COM',         'normal',  [0.001, 0.001, 0.03]; % [X Y Z] Absolute Sigma (m)
+    'Uav',     'COM',         'normal',  [0.001, 0.001, 0.05]; % [X Y Z] Absolute Sigma (m)
 };
 
 %% --- 2. INITIALIZE BASELINE (NOMINAL) -----------------------------------
